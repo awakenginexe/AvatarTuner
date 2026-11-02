@@ -11,11 +11,11 @@ no batch-mode compile, no VRChat SDK build. Only offline verification is claimed
 | # | Milestone | State |
 |---|-----------|-------|
 | 1 | Package structure & architecture (UPM layout, asmdefs) | DONE |
-| 2 | Core pure-C# logic layer (no UnityEngine/UnityEditor) | DONE — 178/178 offline tests pass |
+| 2 | Core pure-C# logic layer (no UnityEngine/UnityEditor) | DONE — 189/189 offline tests pass |
 | 3 | Localization en / th / zh-Hans | DONE — 311 keys × 3 languages, generated + validated |
 | 4 | Avatar scanning, dependency tracking & compatibility (Editor) | DONE — scanner + compatibility scanner + tool detection complete |
 | 5 | Texture optimization integration (Editor) | DONE — plan builder + generated texture materializer + third-party protection |
-| 6 | Generated-asset management & change-tracking integration | pending |
+| 6 | Generated-asset management & change-tracking integration | DONE — manifest persistence, safe cleanup, tamper detection wired to ChangeAnalyzer |
 | 7 | Unity Editor UI (window, menus, progress, errors) | pending |
 | 8 | Docs, Unity test stubs, verification report, package finalization | pending |
 
@@ -30,8 +30,16 @@ no batch-mode compile, no VRChat SDK build. Only offline verification is claimed
   avatar scan), **CompatibilityScanner** (third-party tool evidence → CompatibilityReport)
 - `Editor/Optimization/` — **TexturePlanBuilder** (Unity free; scan report + policy +
   overrides → per-texture plans, with third-party protection rules), **TextureFormatMapping**
-  (Unity free; tuner format → TextureImporterFormat name table), **TextureOptimizer**
-  (materializes plans into generated texture assets; originals never touched)
+  (Unity free; tuner format → TextureImporterFormat name table), **TextureGenerationModels**
+  (Unity free; generated-asset result models), **TextureOptimizer** (materializes plans into
+  generated texture assets; originals never touched)
+- `Editor/Tracking/` — **ManifestStateBuilder** (Unity free; run → recorded
+  `AvatarOptimizationState` with provenance + deterministic config hash), **CleanupPlanner**
+  (Unity free; the deletion policy: recorded paths only, under the generated root only,
+  never the manifest), **GeneratedAssetStore** (manifest persistence at
+  `Assets/AvatarTuner-Generated/avatartuner-manifest.json`, regeneration sync, cleanup),
+  **UnityFingerprintProvider** (`AssetDatabase.GetAssetDependencyHash` + importer-settings
+  hash), **ChangeTrackingService** (fresh scan + observed output hashes → `ChangeAnalyzer`)
 - `Editor/Localization/Translations/{en,th,zh-Hans}.json` + `Tools~/build_translations.py`
   (single source of truth; regenerating keeps all languages in lock-step)
 - `Tests/Standalone~/` — dependency-free test runner (net8.0) plus a `core-compat` project that
@@ -71,6 +79,32 @@ no batch-mode compile, no VRChat SDK build. Only offline verification is claimed
   file size) for the Milestone 6 manifest. Per-texture failures become localized findings
   and never abort the run; cancellation keeps what was written.
 
+## Generated-asset management (Milestone 6, completed)
+
+- `Editor/Tracking/ManifestStateBuilder.cs` — Unity free (compiled into the offline tests).
+  Assembles the recorded `AvatarOptimizationState` from a run: provenance per output
+  (source GUID, plan hash, content hash), deterministic config hash over preset policy +
+  per-texture overrides (order independent, effect-less overrides ignored, override
+  targets part of the hash), ISO-8601 UTC stamps. A failed or cancelled run never claims
+  a success timestamp.
+- `Editor/Tracking/CleanupPlanner.cs` — Unity free. The deletion policy, fully tested:
+  only manifest-recorded paths, only strictly under the generated root (separator-boundary
+  aware, case and slash normalized), never the manifest file. Also computes what a
+  regeneration removes, which files are orphans, and the common output folder that scopes
+  tamper detection to one avatar.
+- `Editor/Tracking/GeneratedAssetStore.cs` — manifest persistence
+  (`Assets/AvatarTuner-Generated/avatartuner-manifest.json`, pretty JSON, schema-checked).
+  Strict policy: a corrupt or newer manifest is never overwritten (unknown provenance means
+  unknown ownership) and is reported via `error.manifestCorrupt` / `error.manifestNewer`.
+  `RecordRun` = regeneration (deletes previous outputs the new run no longer produces,
+  then upserts), `RemoveAvatar` / `CleanupOrphans` = safe cleanup through the safety gate.
+- `Editor/Tracking/UnityFingerprintProvider.cs` + `ChangeTrackingService.cs` — the change
+  tracker: sources from a fresh scan via Core `DependencyRegistry` + `IFingerprintProvider`
+  (Unity's `GetAssetDependencyHash` plus a separate hash over the importer settings that
+  affect output), generated outputs observed by hashing the files that really exist.
+  `ChangeAnalyzer.Analyze` then provides source/importer changes, partial invalidation and
+  tamper / missing-file / orphan detection with the six `OptimizationStatus` states.
+
 ## Test command (offline, no Unity)
 
 ```bash
@@ -78,10 +112,11 @@ cd Tests/Standalone~
 dotnet run --project AvatarTuner.StandaloneTests.csproj
 ```
 
-Last result: **178 passed, 0 failed, 0 skipped** (148 inherited + 15 CompatibilityTests +
-15 PlanBuilderTests).
+Last result: **189 passed, 0 failed, 0 skipped** (148 inherited + 15 CompatibilityTests +
+15 PlanBuilderTests + 11 TrackingTests).
 
-Editor glue (CompatibilityScanner, TextureOptimizer, AvatarAnalysisModel) is additionally
+Editor glue (CompatibilityScanner, TextureOptimizer, GeneratedAssetStore,
+ChangeTrackingService, UnityFingerprintProvider, AvatarAnalysisModel) is additionally
 type-checked offline against Unity API stubs (`dotnet build` in a scratch project, no Unity
 involved); this is not the same as real Unity compilation.
 
@@ -107,14 +142,13 @@ involved); this is not the same as real Unity compilation.
 
 ## Next steps (exact)
 
-1. Milestone 6: generated-asset manifest persistence (write the Milestone 5 provenance into
-   `ManifestModels` documents next to the generated assets), regeneration, safe cleanup
-   (only generated files are ever deleted), tamper detection wired to `ChangeAnalyzer`.
-2. Milestone 7: `Editor/UI/AvatarTunerWindow.cs`, menu item, progress/cancel, all states.
+1. Milestone 7: `Editor/UI/AvatarTunerWindow.cs`, menu item, progress/cancel, all states.
+   Wire the pipeline: scan → plan → generate → `GeneratedAssetStore.RecordRun`; change
+   status via `ChangeTrackingService.Analyze`; cleanup via `RemoveAvatar` / `CleanupOrphans`.
    Compatibility section renders `CompatibilityReport` (DetectedTools with `compat.risk*`
    badges, Notices, Warnings, Blockers); disable Optimize when `IsOptimizationAllowed` is
    false and show `compat.manualInspection` when warnings exist.
-3. Milestone 8: README, CHANGELOG, install guide, user guide, limitations, verification report,
+2. Milestone 8: README, CHANGELOG, install guide, user guide, limitations, verification report,
    manual Unity checklist, NUnit EditMode stubs (execution pending), `.meta` files.
 
 ## Pending Unity-dependent verification (never run, never claimed)

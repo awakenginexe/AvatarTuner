@@ -19,41 +19,6 @@ using UnityEngine;
 
 namespace AvatarTuner.Editor.Optimization
 {
-    /// <summary>One generated texture asset and its provenance.</summary>
-    public sealed class GeneratedTextureAsset
-    {
-        public string SourceGuid;
-        public string SourcePath;
-        public string GeneratedGuid;
-        public string GeneratedPath;
-
-        /// <summary>Hash token of the plan that produced it; used for change tracking.</summary>
-        public string PlanHashToken;
-
-        /// <summary>On-disk size of the generated file (0 when unreadable).</summary>
-        public long GeneratedFileSizeBytes;
-
-        /// <summary>Planned GPU memory of the generated texture.</summary>
-        public long PlannedTargetBytes;
-    }
-
-    /// <summary>Outcome of a generation run.</summary>
-    public sealed class TextureGenerationResult
-    {
-        public string OutputFolder;
-        public bool Succeeded;
-        public bool Cancelled;
-        public int SkippedCount;
-
-        public readonly List<GeneratedTextureAsset> Generated = new List<GeneratedTextureAsset>();
-        public readonly List<AnalysisFinding> Findings = new List<AnalysisFinding>();
-
-        /// <summary>Total planned GPU memory after optimization.</summary>
-        public long PlannedTargetBytesTotal;
-
-        internal int ErrorCount;
-    }
-
     public static class TextureOptimizer
     {
         private const string GeneratedRoot = "Assets/AvatarTuner-Generated";
@@ -220,6 +185,7 @@ namespace AvatarTuner.Editor.Optimization
                 if (info.Exists)
                 {
                     asset.GeneratedFileSizeBytes = info.Length;
+                    asset.ContentHash = StableHash.Sha256Hex(File.ReadAllBytes(targetPath));
                 }
             }
             catch (IOException)
@@ -265,7 +231,7 @@ namespace AvatarTuner.Editor.Optimization
         }
 
         /// <summary>Creates every missing segment of a project-relative folder path.</summary>
-        private static bool EnsureFolder(string folder)
+        internal static bool EnsureFolder(string folder)
         {
             if (string.IsNullOrEmpty(folder))
             {
