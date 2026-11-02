@@ -1,0 +1,310 @@
+/* AvatarTuner v1.0.0 — window layout stylesheet.
+ *
+ * Structural styling only: spacing, sizing, typography and layout. Every color is applied
+ * from C# (Editor/UI/UiTheme.cs) so the semantic palette adapts to the Editor's dark and
+ * light themes from one source of truth. Prefix: at-
+ */
+
+.at-root {
+    padding: 8px;
+    font-size: 12px;
+}
+
+.at-window-header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.at-app-title {
+    font-size: 16px;
+    -unity-font-style: bold;
+    margin-right: 10px;
+}
+
+.at-app-tag {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 9px;
+    margin-right: 8px;
+    -unity-text-align: middle-center;
+}
+
+.at-grow {
+    flex-grow: 1;
+}
+
+.at-row {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.at-row-top {
+    flex-direction: row;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.at-col {
+    flex-direction: column;
+}
+
+.at-card {
+    padding: 10px;
+    margin-bottom: 8px;
+    border-radius: 6px;
+    border-width: 1px;
+}
+
+.at-card-title {
+    font-size: 12px;
+    -unity-font-style: bold;
+    margin-bottom: 6px;
+}
+
+.at-section-title {
+    font-size: 12px;
+    -unity-font-style: bold;
+    margin-top: 10px;
+    margin-bottom: 4px;
+}
+
+.at-metric-grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.at-metric-card {
+    padding: 12px;
+    margin: 3px;
+    border-radius: 6px;
+    border-width: 1px;
+    min-width: 132px;
+    flex-grow: 1;
+}
+
+.at-metric-label {
+    font-size: 11px;
+    white-space: normal;
+}
+
+.at-metric-value {
+    font-size: 22px;
+    -unity-font-style: bold;
+    margin-top: 2px;
+}
+
+.at-metric-value-sm {
+    font-size: 15px;
+    -unity-font-style: bold;
+    margin-top: 2px;
+}
+
+.at-metric-sub {
+    font-size: 10px;
+    margin-top: 3px;
+    white-space: normal;
+}
+
+.at-chip {
+    padding: 2px 8px;
+    border-radius: 9px;
+    margin-right: 5px;
+    margin-bottom: 3px;
+    font-size: 10px;
+    -unity-text-align: middle-center;
+    white-space: normal;
+}
+
+.at-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 5px;
+    margin-right: 6px;
+    align-self: center;
+    flex-shrink: 0;
+}
+
+.at-nav {
+    width: 186px;
+    flex-shrink: 0;
+    margin-right: 8px;
+}
+
+.at-nav.compact {
+    width: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-right: 0;
+    margin-bottom: 8px;
+}
+
+.at-nav-item {
+    padding: 8px 10px;
+    margin-bottom: 3px;
+    border-radius: 5px;
+    flex-direction: row;
+    align-items: center;
+}
+
+.at-nav.compact .at-nav-item {
+    margin-right: 4px;
+}
+
+.at-nav-item-label {
+    font-size: 12px;
+    white-space: normal;
+}
+
+.at-nav-item-count {
+    font-size: 10px;
+    margin-left: 6px;
+}
+
+.at-content {
+    flex-grow: 1;
+    min-width: 260px;
+}
+
+.at-step {
+    padding: 3px 10px;
+    margin-right: 3px;
+    border-radius: 10px;
+    font-size: 10px;
+    -unity-text-align: middle-center;
+    white-space: normal;
+}
+
+.at-step-sep {
+    margin-right: 3px;
+    font-size: 10px;
+    -unity-text-align: middle-center;
+}
+
+.at-primary-btn {
+    min-height: 30px;
+    padding: 5px 20px;
+    margin-right: 8px;
+    font-size: 13px;
+    -unity-font-style: bold;
+    border-radius: 5px;
+}
+
+.at-btn {
+    min-height: 22px;
+    padding: 3px 10px;
+    margin-right: 5px;
+    margin-bottom: 3px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: normal;
+}
+
+.at-danger-btn {
+    min-height: 22px;
+    padding: 3px 10px;
+    margin-left: 5px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: normal;
+}
+
+.at-hint {
+    font-size: 10px;
+    margin-top: 3px;
+    white-space: normal;
+}
+
+.at-separator {
+    height: 1px;
+    margin: 8px 0;
+}
+
+.at-text {
+    font-size: 11px;
+    white-space: normal;
+}
+
+.at-text-strong {
+    font-size: 12px;
+    -unity-font-style: bold;
+    white-space: normal;
+}
+
+.at-text-secondary {
+    font-size: 10px;
+    white-space: normal;
+}
+
+.at-value {
+    font-size: 12px;
+    -unity-font-style: bold;
+    white-space: normal;
+}
+
+.at-table-header {
+    font-size: 10px;
+    -unity-font-style: bold;
+    margin-bottom: 3px;
+}
+
+.at-col-name { flex-grow: 1; min-width: 120px; }
+.at-col-w80 { width: 80px; flex-shrink: 0; margin-left: 6px; }
+.at-col-w95 { width: 95px; flex-shrink: 0; margin-left: 6px; }
+.at-col-w110 { width: 110px; flex-shrink: 0; margin-left: 6px; }
+.at-col-w60 { width: 60px; flex-shrink: 0; margin-left: 6px; }
+.at-col-w70 { width: 70px; flex-shrink: 0; margin-left: 6px; }
+.at-col-w130 { width: 130px; flex-shrink: 0; margin-left: 6px; }
+
+.at-row-card {
+    padding: 7px 8px;
+    margin-bottom: 3px;
+    border-radius: 5px;
+    border-width: 1px;
+}
+
+.at-thumb {
+    width: 30px;
+    height: 30px;
+    margin-right: 8px;
+    border-radius: 3px;
+    align-self: center;
+    flex-shrink: 0;
+}
+
+.at-progress-track {
+    height: 6px;
+    border-radius: 3px;
+    margin: 6px 0;
+    flex-grow: 1;
+}
+
+.at-progress-fill {
+    height: 6px;
+    border-radius: 3px;
+}
+
+.at-details {
+    margin-top: 6px;
+}
+
+.at-insight {
+    flex-direction: row;
+    align-items: flex-start;
+    margin-bottom: 5px;
+}
+
+.at-insight-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    margin-top: 4px;
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+
+.at-field {
+    margin-right: 8px;
+    min-width: 130px;
+}

@@ -45,6 +45,10 @@
     <Compile Include="..\..\Editor\Tracking\CleanupPlanner.cs" />
     <Compile Include="..\..\Editor\Tracking\ManifestStateBuilder.cs" />
     <Compile Include="..\..\Editor\UI\WindowFlow.cs" />
+    <Compile Include="..\..\Editor\UI\ViewModels\DashboardModel.cs" />
+    <Compile Include="..\..\Editor\UI\ViewModels\TextureRowModel.cs" />
+    <Compile Include="..\..\Editor\UI\ViewModels\CompatibilityGrouper.cs" />
+    <Compile Include="..\..\Editor\UI\ViewModels\WorkflowModel.cs" />
   </ItemGroup>
 
   <ItemGroup>

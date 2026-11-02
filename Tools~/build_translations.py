@@ -264,6 +264,8 @@ ENTRIES = [
     ("ui.section.changeTracking", "Change Tracking", "การติดตามการเปลี่ยนแปลง", "变更追踪"),
     ("ui.section.preferences", "Preferences", "การตั้งค่า", "首选项"),
     ("ui.section.advanced", "Advanced", "ขั้นสูง", "高级"),
+    ("ui.section.dashboard", "Key Metrics", "ตัวชี้วัดหลัก", "核心指标"),
+    ("ui.section.insights", "Optimization Insights", "ข้อมูลเชิงลึกสำหรับการปรับแต่ง", "优化洞察"),
 
     # ---------------------------------------------------------------- buttons
     ("ui.button.analyze", "Analyze Avatar", "วิเคราะห์โมเดล", "分析模型"),
@@ -283,6 +285,7 @@ ENTRIES = [
     ("ui.button.apply", "Apply", "นำไปใช้", "应用"),
     ("ui.button.close", "Close", "ปิด", "关闭"),
     ("ui.button.copy", "Copy", "คัดลอก", "复制"),
+    ("ui.button.ping", "Show in Editor", "แสดงในเอดิเตอร์", "在编辑器中定位"),
     ("ui.button.viewManifest", "View Manifest", "ดู manifest", "查看清单"),
 
     # ---------------------------------------------------------------- labels
@@ -324,6 +327,13 @@ ENTRIES = [
     ("ui.label.estimated", "Estimated (simulated)", "โดยประมาณ (จำลอง)", "估算（模拟）"),
     ("ui.label.measured", "Measured", "วัดจริง", "实测"),
     ("ui.label.notAvailable", "Not available", "ไม่มีข้อมูล", "无数据"),
+    ("ui.label.components", "Components", "คอมโพเนนต์", "组件"),
+    ("ui.label.qualityRisk", "Quality Risk", "ความเสี่ยงต่อคุณภาพ", "画质风险"),
+    ("ui.label.sort", "Sort", "เรียงลำดับ", "排序"),
+    ("ui.label.sceneObject", "Scene object", "ออบเจกต์ในซีน", "场景对象"),
+    ("ui.label.analysisStatus", "Analysis", "การวิเคราะห์", "分析状态"),
+    ("ui.label.analyzed", "Analyzed", "วิเคราะห์แล้ว", "已分析"),
+    ("ui.label.notAnalyzed", "Not analyzed", "ยังไม่ได้วิเคราะห์", "未分析"),
     ("ui.label.unknown", "Unknown", "ไม่ทราบ", "未知"),
     ("ui.label.yes", "Yes", "ใช่", "是"),
     ("ui.label.no", "No", "ไม่", "否"),
@@ -721,6 +731,44 @@ ENTRIES = [
     ("ui.label.searchPlaceholder", "Filter...", "กรอง...", "筛选..."),
     ("ui.label.moreItems", "{0} more item(s) not shown", "มีอีก {0} รายการที่ไม่ได้แสดง", "另有 {0} 项未显示"),
     ("ui.label.ofTotal", "{0} of {1}", "{0} จาก {1}", "{0} / {1}"),
+
+    # ---------------------------------------------------------------- workflow & hints
+    ("ui.workflow.select", "Select Avatar", "เลือกโมเดล", "选择模型"),
+    ("ui.workflow.analyze", "Analyze", "วิเคราะห์", "分析"),
+    ("ui.workflow.review", "Review Changes", "ตรวจสอบการเปลี่ยนแปลง", "检查变更"),
+    ("ui.workflow.optimize", "Optimize", "ปรับแต่ง", "优化"),
+    ("ui.workflow.results", "Results", "ผลลัพธ์", "结果"),
+    ("ui.hint.selectAvatar", "Select a model first to enable this action.",
+     "เลือกโมเดลก่อนเพื่อเปิดใช้งานการทำงานนี้", "请先选择模型后再执行此操作。"),
+    ("ui.hint.analyzeFirst", "Analyze the avatar to see what can be optimized.",
+     "วิเคราะห์โมเดลก่อนเพื่อดูว่าปรับแต่งอะไรได้บ้าง", "请先分析模型以查看可优化的内容。"),
+    ("ui.hint.noChanges", "This avatar is already optimal; there is nothing to do.",
+     "โมเดลนี้เหมาะสมอยู่แล้ว จึงไม่มีอะไรต้องทำ", "该模型已处于最优状态，无需操作。"),
+    ("ui.hint.blocked",
+     "Optimization is disabled by compatibility findings. See the Compatibility module.",
+     "การปรับแต่งถูกปิดใช้งานโดยผลการตรวจสอบความเข้ากันได้ โปรดดูที่โมดูลความเข้ากันได้",
+     "优化已被兼容性检查结果禁用，请查看兼容性模块。"),
+    ("ui.hint.busy", "Another operation is still running.",
+     "มีการดำเนินการอื่นกำลังทำงานอยู่", "另有操作正在进行中。"),
+
+    # ---------------------------------------------------------------- texture status chips
+    ("ui.textureStatus.optimized", "Already optimized", "ปรับแต่งแล้ว", "已优化"),
+    ("ui.textureStatus.available", "Optimization available", "ปรับแต่งได้", "可优化"),
+    ("ui.textureStatus.manualReview", "Manual review", "ต้องตรวจสอบเอง", "需手动检查"),
+    ("ui.textureStatus.excluded", "Excluded", "ยกเว้น", "已排除"),
+    ("ui.textureStatus.unsupported", "Unsupported", "ไม่รองรับ", "不支持"),
+
+    # ---------------------------------------------------------------- compatibility groups
+    ("ui.group.systems", "Animation-driven Systems", "ระบบขับเคลื่อนด้วยแอนิเมชัน", "动画驱动系统"),
+    ("ui.group.conflicts", "Conflicts", "ความขัดแย้ง", "冲突"),
+
+    # ---------------------------------------------------------------- dashboard insights
+    ("ui.insight.potentialSaving", "Potential GPU memory saving: {0} ({1})",
+     "ประหยัดหน่วยความจำ GPU ที่เป็นไปได้: {0} ({1})", "预计可节省显存：{0}（{1}）"),
+    ("ui.insight.manualReview", "{0} texture(s) need manual review before use.",
+     "เทกซ์เจอร์ {0} รายการต้องตรวจสอบด้วยตนเองก่อนใช้งาน", "有 {0} 个纹理需要手动检查后才能使用。"),
+    ("ui.insight.clear", "No optimization opportunities or warnings found right now.",
+     "ขณะนี้ไม่พบโอกาสในการปรับแต่งหรือคำเตือน", "当前未发现可优化项或警告。"),
 ]
 
 

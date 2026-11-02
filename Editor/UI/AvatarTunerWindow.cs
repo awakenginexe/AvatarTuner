@@ -1,13 +1,15 @@
-// AvatarTuner v1.0.0 — the editor window.
+// AvatarTuner v1.0.0 — the editor window (UI Toolkit).
 //
-// A localized, fully wired IMGUI window over the existing engines. Design rules:
-//   - Every control calls a real implementation (AvatarTunerController and friends);
-//     nothing is decorative and nothing is shown that cannot work.
-//   - Everything is localized through UiStrings (en / th / zh-Hans), switchable live.
-//   - The window never touches source assets: optimize writes generated copies, cleanup
-//     only removes what the manifest recorded.
-//   - Every OnGUI pass is exception-proof: a failing draw degrades to an error box
-//     instead of breaking the editor.
+// A polished, localized editor tool over the existing engines. Design rules:
+//   - Sidebar navigation (compact wrap layout when the window is narrow): no truncated or
+//     overlapping tabs in any dock configuration.
+//   - A dashboard of real metrics and actionable insights replaces raw summary text.
+//   - Semantic colors (see UiTheme) always pair with a text label; nothing is color-only.
+//   - One clear primary action per workflow step: Select Avatar > Analyze > Review Changes
+//     > Optimize > Results. Disabled actions explain themselves instead of being dead.
+//   - Every control calls a real implementation; nothing decorative, nothing fake.
+//   - Non-destructive by construction: generated copies only, source assets never touched.
+//   - Fully localized (en / th / zh-Hans) with no hardcoded display text.
 
 using System;
 using System.Collections.Generic;
@@ -18,350 +20,1608 @@ using AvatarTuner.Core;
 using AvatarTuner.Editor.Analysis;
 using AvatarTuner.Editor.Optimization;
 using AvatarTuner.Editor.Tracking;
+using AvatarTuner.Editor.ViewModels;
 using UnityEditor;
+using UnityEditor.UIElements;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace AvatarTuner.Editor.UI
 {
     public sealed class AvatarTunerWindow : EditorWindow
     {
-        private const int MaxTableRows = 200;
+        private const int ModuleOverview = 0;
+        private const int ModuleTextures = 1;
+        private const int ModuleMaterials = 2;
+        private const int ModuleCompatibility = 3;
+        private const int ModuleTracking = 4;
+        private const int ModuleResults = 5;
+        private const int ModuleSettings = 6;
+
+        private static readonly string[] ModuleLabelKeys =
+        {
+            "ui.tab.overview",
+            "ui.tab.textures",
+            "ui.tab.materials",
+            "compat.title",
+            "ui.tab.tracking",
+            "ui.tab.results",
+            "ui.tab.settings"
+        };
 
         private readonly AvatarTunerController _controller = new AvatarTunerController();
 
-        private int _tab;
-        private Vector2 _scroll;
+        private int _module = ModuleOverview;
         private string _filter = string.Empty;
-        private bool _showAdvanced;
+        private TextureSortMode _sortMode = TextureSortMode.Vram;
+        private bool _cancelRequested;
+        private bool _compactNav;
+
         private string _noticeKey;
         private readonly List<string> _noticeArgs = new List<string>();
 
-        // ===================================================================== menu & lifecycle
+        private VisualElement _root;
+        private VisualElement _nav;
+        private VisualElement _navItems;
+        private VisualElement _content;
+        private VisualElement _statusArea;
+        private VisualElement _actionArea;
+
+        // ===================================================================== entry point
 
         [MenuItem("Tools/AvatarTuner")]
         public static void Open()
         {
             var window = GetWindow<AvatarTunerWindow>();
             window.titleContent = new GUIContent(UiStrings.T("ui.window.title"));
-            window.minSize = new Vector2(560, 640);
+            window.minSize = new Vector2(420, 520);
             window.Show();
         }
 
-        private void OnEnable()
+        private void CreateGUI()
         {
-            titleContent = new GUIContent(UiStrings.T("ui.window.title"));
-        }
-
-        private void OnGUI()
-        {
-            try
-            {
-                DrawWindow();
-            }
-            catch (Exception ex)
-            {
-                // A draw pass must never take the editor down with it.
-                EditorGUILayout.HelpBox(
-                    UiStrings.T("error.unexpected", ex.Message), MessageType.Error);
-            }
+            BuildShell();
+            RefreshView();
         }
 
         // ===================================================================== shell
 
-        private void DrawWindow()
+        private void BuildShell()
         {
-            DrawHeader();
-            DrawToolbar();
-            DrawStateBanner();
-            DrawNotice();
+            _root = rootVisualElement;
+            _root.Clear();
+            _root.AddToClassList("at-root");
+            _root.style.color = UiTheme.Text;
 
-            _tab = GUILayout.Toolbar(_tab, TabLabels());
+            TryLoadStylesheet();
 
-            _scroll = EditorGUILayout.BeginScrollView(_scroll);
-            switch (_tab)
-            {
-                case 0: DrawOverview(); break;
-                case 1: DrawTextures(); break;
-                case 2: DrawPreview(); break;
-                case 3: DrawResults(); break;
-                case 4: DrawTracking(); break;
-                case 5: DrawMaterials(); break;
-                case 6: DrawSettings(); break;
-                default: DrawPreferences(); break;
-            }
+            _root.Add(BuildWindowHeader());
 
-            EditorGUILayout.EndScrollView();
-            DrawError();
+            _statusArea = new VisualElement();
+            _root.Add(_statusArea);
+
+            _actionArea = new VisualElement();
+            _root.Add(_actionArea);
+
+            var body = new VisualElement();
+            body.AddToClassList("at-row-top");
+            body.style.flexGrow = 1;
+
+            _nav = new VisualElement();
+            _nav.AddToClassList("at-nav");
+            _navItems = new VisualElement();
+            _nav.Add(_navItems);
+            body.Add(_nav);
+
+            var contentScroll = new ScrollView();
+            contentScroll.AddToClassList("at-grow");
+            _content = new VisualElement();
+            _content.AddToClassList("at-content");
+            contentScroll.Add(_content);
+            body.Add(contentScroll);
+
+            _root.Add(body);
+
+            // Responsive navigation: sidebar while wide, wrapping chip bar when narrow, so
+            // labels never overlap or get cut off.
+            _root.RegisterCallback<GeometryChangedEvent>(OnGeometryChanged);
         }
 
-        private static string[] TabLabels()
+        private void TryLoadStylesheet()
         {
-            return new[]
+            try
             {
-                UiStrings.T("ui.tab.overview"),
-                UiStrings.T("ui.tab.textures"),
-                UiStrings.T("ui.tab.preview"),
-                UiStrings.T("ui.tab.results"),
-                UiStrings.T("ui.tab.tracking"),
-                UiStrings.T("ui.tab.materials"),
-                UiStrings.T("ui.tab.settings"),
-                UiStrings.T("ui.tab.preferences")
-            };
+                var guids = AssetDatabase.FindAssets("AvatarTunerWindow t:StyleSheet");
+                for (var i = 0; i < guids.Length; i++)
+                {
+                    var path = AssetDatabase.GUIDToAssetPath(guids[i]);
+                    if (!path.EndsWith("Editor/UI/AvatarTunerWindow.uss", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var sheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(path);
+                    if (sheet != null)
+                    {
+                        _root.styleSheets.Add(sheet);
+                    }
+
+                    return;
+                }
+            }
+            catch (Exception)
+            {
+                // Styling is presentation only; the window stays fully usable without it.
+            }
         }
 
-        private void DrawHeader()
+        private void OnGeometryChanged(GeometryChangedEvent evt)
         {
-            EditorGUILayout.LabelField(UiStrings.T("ui.window.title"), EditorStyles.boldLabel);
-
-            EditorGUI.BeginChangeCheck();
-            var avatar = (GameObject)EditorGUILayout.ObjectField(
-                new GUIContent(UiStrings.T("ui.label.avatar"), UiStrings.T("tip.avatarField")),
-                _controller.Avatar, typeof(GameObject), true);
-            if (EditorGUI.EndChangeCheck())
+            var narrow = evt.newRect.width > 0 && evt.newRect.width < 720;
+            if (narrow == _compactNav)
             {
-                _controller.SelectAvatar(avatar);
-                ClearNotice();
+                return;
             }
 
-            DrawDropZone();
+            _compactNav = narrow;
+            _nav.EnableInClassList("compact", narrow);
+            if (narrow)
+            {
+                _nav.style.width = StyleKeyword.Auto;
+                _nav.style.marginRight = 0;
+            }
+            else
+            {
+                _nav.style.width = 186;
+                _nav.style.marginRight = 8;
+            }
+        }
 
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.avatarPath"));
-            EditorGUILayout.LabelField(string.IsNullOrEmpty(_controller.RootKey)
-                ? UiStrings.T("ui.label.notAvailable")
-                : _controller.RootKey);
-            EditorGUILayout.EndHorizontal();
+        private VisualElement BuildWindowHeader()
+        {
+            var header = new VisualElement();
+            header.AddToClassList("at-window-header");
 
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(
-                new GUIContent(UiStrings.T("ui.label.language"), UiStrings.T("tip.languageField")));
-            var languageNames = new string[UiStrings.Languages.Length];
+            var title = new Label(UiStrings.T("ui.window.title"));
+            title.AddToClassList("at-app-title");
+            header.Add(title);
+
+            var version = new Label("v" + GeneratedAssetStore.ToolVersion);
+            version.AddToClassList("at-app-tag");
+            version.style.color = UiTheme.TextSecondary;
+            version.style.backgroundColor = UiTheme.ChipBackground;
+            header.Add(version);
+
+            header.Add(Spacer());
+
+            header.Add(BuildLanguagePicker());
+            return header;
+        }
+
+        private VisualElement BuildLanguagePicker()
+        {
+            var row = new VisualElement();
+            row.AddToClassList("at-row");
+
+            var label = new Label(UiStrings.T("ui.label.language"));
+            label.AddToClassList("at-text");
+            label.style.color = UiTheme.TextSecondary;
+            row.Add(label);
+
+            var names = new List<string>();
             var current = 0;
             for (var i = 0; i < UiStrings.Languages.Length; i++)
             {
-                languageNames[i] = UiStrings.LanguageName(UiStrings.Languages[i]);
+                names.Add(UiStrings.LanguageName(UiStrings.Languages[i]));
                 if (UiStrings.Languages[i] == UiStrings.Language)
                 {
                     current = i;
                 }
             }
 
-            var next = EditorGUILayout.Popup(current, languageNames);
-            if (next != current)
+            var picker = new DropdownField();
+            picker.choices = names;
+            picker.value = names[current];
+            picker.AddToClassList("at-field");
+            picker.RegisterValueChangedCallback(evt =>
             {
-                UiStrings.Language = UiStrings.Languages[next];
-                titleContent = new GUIContent(UiStrings.T("ui.window.title"));
-                GUIUtility.ExitGUI();
-            }
-
-            EditorGUILayout.EndHorizontal();
-
-            DrawStatusLine();
-        }
-
-        private void DrawDropZone()
-        {
-            var rect = GUILayoutUtility.GetRect(0f, 40f, GUILayout.ExpandWidth(true));
-            GUI.Box(rect, UiStrings.T("ui.drop.hint"), EditorStyles.helpBox);
-
-            var evt = Event.current;
-            if (evt == null ||
-                (evt.type != EventType.DragUpdated && evt.type != EventType.DragPerform))
-            {
-                return;
-            }
-
-            if (!rect.Contains(evt.mousePosition))
-            {
-                return;
-            }
-
-            var dragged = DraggedGameObject();
-            if (dragged == null)
-            {
-                DragAndDrop.visualMode = DragAndDropVisualMode.Rejected;
-                if (evt.type == EventType.DragPerform)
+                for (var i = 0; i < UiStrings.Languages.Length; i++)
                 {
-                    ShowNotice("ui.drop.invalidType");
-                    evt.Use();
+                    if (UiStrings.LanguageName(UiStrings.Languages[i]) == evt.newValue)
+                    {
+                        UiStrings.Language = UiStrings.Languages[i];
+                        titleContent = new GUIContent(UiStrings.T("ui.window.title"));
+                        RebuildEverything();
+                        return;
+                    }
                 }
+            });
+            row.Add(picker);
+            return row;
+        }
 
+        private void RebuildEverything()
+        {
+            BuildShell();
+            RefreshView();
+        }
+
+        // ===================================================================== refresh
+
+        private void RefreshView()
+        {
+            if (_root == null)
+            {
                 return;
             }
 
-            DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
-            if (evt.type == EventType.DragPerform)
-            {
-                DragAndDrop.AcceptDrag();
-                _controller.SelectAvatar(dragged);
-                ClearNotice();
-                evt.Use();
-            }
-        }
+            BuildNav();
+            BuildActions();
+            BuildStatus();
 
-        private static GameObject DraggedGameObject()
-        {
-            var references = DragAndDrop.objectReferences;
-            if (references == null)
+            _content.Clear();
+            try
             {
-                return null;
-            }
-
-            for (var i = 0; i < references.Length; i++)
-            {
-                var gameObject = references[i] as GameObject;
-                if (gameObject != null)
+                switch (_module)
                 {
-                    return gameObject;
+                    case ModuleTextures: BuildTexturesModule(_content); break;
+                    case ModuleMaterials: BuildMaterialsModule(_content); break;
+                    case ModuleCompatibility: BuildCompatibilityModule(_content); break;
+                    case ModuleTracking: BuildTrackingModule(_content); break;
+                    case ModuleResults: BuildResultsModule(_content); break;
+                    case ModuleSettings: BuildSettingsModule(_content); break;
+                    default: BuildOverviewModule(_content); break;
                 }
             }
-
-            return null;
+            catch (Exception ex)
+            {
+                _content.Add(Message(UiStrings.T("error.unexpected", ex.Message), UiTheme.Error));
+            }
         }
 
-        private void DrawStatusLine()
-        {
-            var status = _controller.ChangeStatus != null
-                ? _controller.ChangeStatus.Status
-                : (_controller.RecordedState != null
-                    ? _controller.RecordedState.Status
-                    : OptimizationStatus.NotOptimized);
+        // ===================================================================== navigation
 
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.status"));
-            EditorGUILayout.LabelField(UiStrings.T(StatusNameKey(status)), EditorStyles.boldLabel);
-            EditorGUILayout.EndHorizontal();
-            EditorGUILayout.LabelField(UiStrings.T(StatusSummaryKey(status)), EditorStyles.miniLabel);
+        private void BuildNav()
+        {
+            _navItems.Clear();
+            var badgeCounts = new[] { -1, RowCount(ModuleTextures), -1, -1, -1, -1, -1 };
+
+            for (var i = 0; i < ModuleLabelKeys.Length; i++)
+            {
+                var index = i;
+                var selected = index == _module;
+
+                var item = new Button(() =>
+                {
+                    _module = index;
+                    RefreshView();
+                });
+                item.AddToClassList("at-nav-item");
+                item.style.backgroundColor = selected ? UiTheme.SelectedBackground : Color.clear;
+
+                var dot = new VisualElement();
+                dot.AddToClassList("at-dot");
+                dot.style.backgroundColor = selected ? UiTheme.Accent : UiTheme.Neutral;
+                item.Add(dot);
+
+                var text = new Label(UiStrings.T(ModuleLabelKeys[i]));
+                text.AddToClassList("at-nav-item-label");
+                text.style.color = selected ? UiTheme.Text : UiTheme.TextSecondary;
+                text.style.unityFontStyleAndWeight = selected ? FontStyle.Bold : FontStyle.Normal;
+                item.Add(text);
+
+                if (badgeCounts[i] >= 0)
+                {
+                    var badge = new Label(badgeCounts[i].ToString(CultureInfo.InvariantCulture));
+                    badge.AddToClassList("at-nav-item-count");
+                    badge.style.color = UiTheme.TextSecondary;
+                    item.Add(badge);
+                }
+
+                _navItems.Add(item);
+            }
         }
 
-        private void DrawToolbar()
+        private int RowCount(int module)
         {
-            EditorGUILayout.BeginHorizontal();
-
-            EditorGUI.BeginDisabledGroup(!WindowFlow.CanAnalyze(_controller.State) ||
-                                        _controller.Avatar == null);
-            if (GUILayout.Button(new GUIContent(UiStrings.T("ui.button.analyze"), UiStrings.T("tip.analyzeButton"))))
+            if (_controller.Report == null)
             {
-                RunAnalyze();
+                return -1;
             }
 
-            EditorGUI.EndDisabledGroup();
-
-            EditorGUI.BeginDisabledGroup(!WindowFlow.CanPreview(_controller.State, _controller.Plan != null));
-            if (GUILayout.Button(UiStrings.T("ui.button.preview")))
+            switch (module)
             {
-                _tab = 2;
+                case ModuleTextures: return _controller.Report.Textures.Count;
+                default: return -1;
             }
-
-            EditorGUI.EndDisabledGroup();
-
-            EditorGUI.BeginDisabledGroup(!WindowFlow.CanOptimize(
-                _controller.State, _controller.Plan != null,
-                _controller.Plan != null && _controller.Plan.HasChanges,
-                _controller.CompatibilityAllows));
-            var optimizeLabel = _controller.HasRecordedOutputs
-                ? UiStrings.T("ui.button.regenerate")
-                : UiStrings.T("ui.button.optimize");
-            if (GUILayout.Button(new GUIContent(optimizeLabel, UiStrings.T("tip.optimizeButton"))))
-            {
-                RunOptimize();
-            }
-
-            EditorGUI.EndDisabledGroup();
-
-            EditorGUI.BeginDisabledGroup(!WindowFlow.CanCleanup(_controller.State, _controller.HasRecordedOutputs));
-            if (GUILayout.Button(new GUIContent(UiStrings.T("ui.button.cleanup"), UiStrings.T("tip.cleanup"))))
-            {
-                RunCleanup();
-            }
-
-            EditorGUI.EndDisabledGroup();
-
-            if (GUILayout.Button(UiStrings.T("ui.button.refresh")))
-            {
-                _controller.RefreshStatus();
-            }
-
-            if (GUILayout.Button(UiStrings.T("ui.button.reset")))
-            {
-                _controller.ClearOverrides();
-                _controller.SelectAvatar(_controller.Avatar);
-                ClearNotice();
-            }
-
-            EditorGUILayout.EndHorizontal();
         }
 
-        private void DrawStateBanner()
+        // ===================================================================== actions & workflow
+
+        private void BuildActions()
         {
+            _actionArea.Clear();
+            _actionArea.Add(BuildWorkflowBar());
+        }
+
+        private VisualElement BuildWorkflowBar()
+        {
+            var card = Card(null);
+
+            card.Add(BuildBreadcrumb());
+
+            var row = new VisualElement();
+            row.AddToClassList("at-row");
+            row.style.marginTop = 6;
+
+            var state = _controller.State;
+            var hasPlan = _controller.Plan != null;
+            var planHasChanges = _controller.Plan != null && _controller.Plan.HasChanges;
+            var hasResults = _controller.Generation != null;
+            var hasAvatar = _controller.Avatar != null;
+
+            var primary = WorkflowModel.NextAction(state, hasAvatar, hasPlan, planHasChanges, hasResults);
+            var optimizeReason = WorkflowModel.OptimizeDisabledReasonKey(
+                state, hasAvatar, hasPlan, planHasChanges, _controller.CompatibilityAllows);
+            var analyzeReason = WorkflowModel.AnalyzeDisabledReasonKey(state, hasAvatar);
+
+            row.Add(BuildPrimaryButton(primary, optimizeReason, analyzeReason));
+            row.Add(Spacer());
+            row.Add(SecondaryButton("ui.button.refresh", () => { _controller.RefreshStatus(); RefreshView(); }));
+            row.Add(SecondaryButton("ui.button.exportReport", ExportReport));
+            row.Add(SecondaryButton("ui.button.copy", CopySummary));
+            row.Add(BuildCleanupButton());
+
+            card.Add(row);
+
+            var hint = WorkflowHint(primary, optimizeReason, analyzeReason);
+            if (!string.IsNullOrEmpty(hint))
+            {
+                var hintLabel = new Label(UiStrings.T(hint));
+                hintLabel.AddToClassList("at-hint");
+                hintLabel.style.color = UiTheme.TextSecondary;
+                card.Add(hintLabel);
+            }
+
+            return card;
+        }
+
+        private VisualElement BuildBreadcrumb()
+        {
+            var row = new VisualElement();
+            row.AddToClassList("at-row");
+
+            var active = WorkflowModel.ActiveStep(_controller.State, _controller.Avatar != null,
+                _controller.Generation != null);
+
+            for (var i = 0; i < WorkflowModel.StepLabelKeys.Length; i++)
+            {
+                if (i > 0)
+                {
+                    var sep = new Label("›");
+                    sep.AddToClassList("at-step-sep");
+                    sep.style.color = UiTheme.Neutral;
+                    row.Add(sep);
+                }
+
+                var step = new Label(UiStrings.T(WorkflowModel.StepLabelKeys[i]));
+                step.AddToClassList("at-step");
+                if (i == active)
+                {
+                    step.style.backgroundColor = UiTheme.Accent;
+                    step.style.color = UiTheme.TextOnAccent;
+                    step.style.unityFontStyleAndWeight = FontStyle.Bold;
+                }
+                else if (i < active)
+                {
+                    step.style.backgroundColor = UiTheme.ChipBackground;
+                    step.style.color = UiTheme.Success;
+                }
+                else
+                {
+                    step.style.backgroundColor = UiTheme.ChipBackground;
+                    step.style.color = UiTheme.TextSecondary;
+                }
+
+                row.Add(step);
+            }
+
+            return row;
+        }
+
+        private VisualElement BuildPrimaryButton(PrimaryAction action, string optimizeReason, string analyzeReason)
+        {
+            if (action == PrimaryAction.SelectAvatar)
+            {
+                var note = new Label(UiStrings.T("ui.hint.selectAvatar"));
+                note.AddToClassList("at-text-strong");
+                note.style.color = UiTheme.Accent;
+                return note;
+            }
+
+            string labelKey;
+            Action onClick;
+            var enabled = true;
+            string reasonKey = null;
+
+            switch (action)
+            {
+                case PrimaryAction.Analyze:
+                    labelKey = "ui.button.analyze";
+                    onClick = RunAnalyze;
+                    enabled = analyzeReason == null;
+                    reasonKey = analyzeReason;
+                    break;
+                case PrimaryAction.ReviewChanges:
+                    labelKey = "ui.button.preview";
+                    onClick = () => { _module = ModuleTextures; RefreshView(); };
+                    break;
+                case PrimaryAction.Optimize:
+                case PrimaryAction.Regenerate:
+                    labelKey = action == PrimaryAction.Regenerate ? "ui.button.regenerate" : "ui.button.optimize";
+                    onClick = RunOptimize;
+                    enabled = optimizeReason == null;
+                    reasonKey = optimizeReason;
+                    break;
+                default:
+                    labelKey = "ui.tab.results";
+                    onClick = () => { _module = ModuleResults; RefreshView(); };
+                    break;
+            }
+
+            var button = new Button(onClick) { text = UiStrings.T(labelKey) };
+            button.AddToClassList("at-primary-btn");
+            button.style.backgroundColor = UiTheme.Accent;
+            button.style.color = UiTheme.TextOnAccent;
+            button.SetEnabled(enabled);
+            if (!enabled && !string.IsNullOrEmpty(reasonKey))
+            {
+                button.tooltip = UiStrings.T(reasonKey);
+            }
+            else if (action == PrimaryAction.Analyze)
+            {
+                button.tooltip = UiStrings.T("tip.analyzeButton");
+            }
+            else if (action == PrimaryAction.Optimize || action == PrimaryAction.Regenerate)
+            {
+                button.tooltip = UiStrings.T("tip.optimizeButton");
+            }
+
+            return button;
+        }
+
+        private static string WorkflowHint(PrimaryAction primary, string optimizeReason, string analyzeReason)
+        {
+            switch (primary)
+            {
+                case PrimaryAction.Analyze:
+                    return analyzeReason;
+                case PrimaryAction.Optimize:
+                case PrimaryAction.Regenerate:
+                    return optimizeReason;
+                default:
+                    return null;
+            }
+        }
+
+        private VisualElement BuildCleanupButton()
+        {
+            var enabled = WindowFlow.CanCleanup(_controller.State, _controller.HasRecordedOutputs);
+            var button = new Button(RunCleanup) { text = UiStrings.T("ui.button.cleanup") };
+            button.AddToClassList("at-danger-btn");
+            button.style.backgroundColor = UiTheme.Error;
+            button.style.color = UiTheme.TextOnAccent;
+            button.SetEnabled(enabled);
+            button.tooltip = UiStrings.T("tip.cleanup");
+            return button;
+        }
+
+        private Button SecondaryButton(string labelKey, Action onClick)
+        {
+            var button = new Button(onClick) { text = UiStrings.T(labelKey) };
+            button.AddToClassList("at-btn");
+            button.style.backgroundColor = UiTheme.ChipBackground;
+            button.style.color = UiTheme.Text;
+            button.SetEnabled(WindowFlow.CanEditSettings(_controller.State));
+            return button;
+        }
+
+        // ===================================================================== status area
+
+        private void BuildStatus()
+        {
+            _statusArea.Clear();
+
+            if (!string.IsNullOrEmpty(_controller.ErrorKey))
+            {
+                _statusArea.Add(Message(
+                    UiStrings.T(_controller.ErrorKey, _controller.ErrorArgs.ToArray()), UiTheme.Error));
+            }
+
+            if (!string.IsNullOrEmpty(_noticeKey))
+            {
+                _statusArea.Add(Message(UiStrings.T(_noticeKey, _noticeArgs.ToArray()), UiTheme.Success));
+            }
+
+            _statusArea.Add(BuildStateBanner());
+        }
+
+        private VisualElement BuildStateBanner()
+        {
+            string titleKey;
+            string bodyKey;
+            Color tone;
+
             switch (_controller.State)
             {
                 case WindowState.NoSelection:
-                    EditorGUILayout.HelpBox(
-                        UiStrings.T("ui.state.noSelection.title") + "\n" + UiStrings.T("ui.state.noSelection.body"),
-                        MessageType.Info);
+                    titleKey = "ui.state.noSelection.title";
+                    bodyKey = "ui.state.noSelection.body";
+                    tone = UiTheme.Info;
                     break;
                 case WindowState.Ready:
-                    EditorGUILayout.HelpBox(
-                        UiStrings.T("ui.state.empty.title") + "\n" + UiStrings.T("ui.state.empty.body"),
-                        MessageType.Info);
+                    titleKey = "ui.state.empty.title";
+                    bodyKey = "ui.state.empty.body";
+                    tone = UiTheme.Info;
                     break;
                 case WindowState.Analyzing:
                 case WindowState.Optimizing:
-                    EditorGUILayout.HelpBox(
-                        UiStrings.T("ui.state.loading.title") + "\n" + UiStrings.T("ui.state.loading.body"),
-                        MessageType.Info);
+                    titleKey = "ui.state.loading.title";
+                    bodyKey = "ui.state.loading.body";
+                    tone = UiTheme.Accent;
                     break;
                 case WindowState.Done:
-                    EditorGUILayout.HelpBox(
-                        UiStrings.T("ui.state.success.title") + "\n" + UiStrings.T("ui.state.success.body"),
-                        MessageType.Info);
+                    titleKey = "ui.state.success.title";
+                    bodyKey = "ui.state.success.body";
+                    tone = UiTheme.Success;
                     break;
                 case WindowState.Error:
-                    EditorGUILayout.HelpBox(
-                        UiStrings.T("ui.state.error.title") + "\n" + UiStrings.T("ui.state.error.body"),
-                        MessageType.Warning);
+                    titleKey = "ui.state.error.title";
+                    bodyKey = "ui.state.error.body";
+                    tone = UiTheme.Warning;
                     break;
+                default:
+                    return null;
             }
+
+            var card = Card(null);
+            card.style.backgroundColor = UiTheme.CardHeaderBackground;
+            var row = new VisualElement();
+            row.AddToClassList("at-insight");
+            row.Add(Dot(tone));
+            var col = new VisualElement();
+            col.AddToClassList("at-col");
+            var title = new Label(UiStrings.T(titleKey));
+            title.AddToClassList("at-text-strong");
+            col.Add(title);
+            var body = new Label(UiStrings.T(bodyKey));
+            body.AddToClassList("at-text-secondary");
+            body.style.color = UiTheme.TextSecondary;
+            col.Add(body);
+            row.Add(col);
+            card.Add(row);
+            return card;
         }
 
-        private void DrawError()
+        // ===================================================================== module: overview
+
+        private void BuildOverviewModule(VisualElement container)
         {
-            if (string.IsNullOrEmpty(_controller.ErrorKey))
+            if (_controller.Avatar == null && _controller.Report == null)
             {
+                container.Add(EmptyState());
                 return;
             }
 
-            EditorGUILayout.HelpBox(UiStrings.T(_controller.ErrorKey, _controller.ErrorArgs.ToArray()), MessageType.Error);
+            container.Add(BuildAvatarCard());
+            container.Add(BuildDashboardCard());
+
+            var insights = DashboardModel.BuildInsights(
+                _controller.Report, _controller.Plan,
+                _controller.Report != null ? _controller.Report.Compatibility : null);
+            container.Add(BuildInsightsCard(insights));
+
+            if (_controller.Plan != null)
+            {
+                container.Add(BuildPlanSummaryCard());
+            }
         }
 
-        private void DrawNotice()
+        private VisualElement BuildAvatarCard()
         {
-            if (string.IsNullOrEmpty(_noticeKey))
+            var card = Card("ui.section.avatarSelection");
+
+            var nameRow = new VisualElement();
+            nameRow.AddToClassList("at-row");
+            var nameLabel = new Label(_controller.Avatar != null
+                ? _controller.Avatar.name
+                : UiStrings.T("ui.label.notAvailable"));
+            nameLabel.AddToClassList("at-text-strong");
+            nameLabel.style.color = UiTheme.Accent;
+            nameRow.Add(nameLabel);
+            nameRow.Add(Spacer());
+
+            var analysisTone = _controller.Report != null && _controller.Report.ScanSucceeded
+                ? SemanticTone.Success
+                : (_controller.State == WindowState.Analyzing ? SemanticTone.Info : SemanticTone.Neutral);
+            nameRow.Add(Chip(
+                UiStrings.T("ui.label.analysisStatus") + ": " + UiStrings.T(
+                    _controller.Report != null && _controller.Report.ScanSucceeded
+                        ? "ui.label.analyzed"
+                        : "ui.label.notAnalyzed"),
+                analysisTone));
+
+            var lastStatus = _controller.RecordedState != null
+                ? DashboardModel.StatusNameKey(_controller.RecordedState.Status)
+                : "status.notOptimized.name";
+            nameRow.Add(Chip(UiStrings.T("ui.label.lastOptimized") + ": " + UiStrings.T(lastStatus),
+                DashboardModel.StatusTone(_controller.RecordedState != null
+                    ? _controller.RecordedState.Status
+                    : OptimizationStatus.NotOptimized)));
+            card.Add(nameRow);
+
+            var fieldRow = new VisualElement();
+            fieldRow.AddToClassList("at-row");
+            fieldRow.style.marginTop = 6;
+
+            var field = new ObjectField();
+            field.label = UiStrings.T("ui.label.avatar");
+            field.objectType = typeof(GameObject);
+            field.allowSceneObjects = true;
+            field.value = _controller.Avatar;
+            field.tooltip = UiStrings.T("tip.avatarField");
+            field.AddToClassList("at-grow");
+            field.RegisterValueChangedCallback(evt =>
             {
+                _controller.SelectAvatar(evt.newValue as GameObject);
+                ClearNotice();
+                RefreshView();
+            });
+            fieldRow.Add(field);
+
+            var advanced = new Foldout();
+            advanced.text = UiStrings.T("ui.section.advanced");
+            advanced.value = false;
+            advanced.AddToClassList("at-details");
+
+            var isScene = _controller.Avatar != null && string.IsNullOrEmpty(
+                AssetDatabase.GetAssetPath(_controller.Avatar));
+            advanced.Add(DetailRow("ui.label.status", isScene
+                ? UiStrings.T("ui.label.sceneObject")
+                : UiStrings.T("ui.label.avatarPath")));
+            advanced.Add(DetailRow("ui.label.avatarPath",
+                string.IsNullOrEmpty(_controller.RootKey)
+                    ? UiStrings.T("ui.label.notAvailable")
+                    : _controller.RootKey));
+            if (_controller.RecordedState != null)
+            {
+                advanced.Add(DetailRow("ui.label.toolVersion",
+                    _controller.RecordedState.ToolVersionAtOptimization));
+                advanced.Add(DetailRow("ui.label.engineVersion",
+                    _controller.RecordedState.EngineVersionAtOptimization));
+                advanced.Add(DetailRow("ui.label.lastOptimized",
+                    string.IsNullOrEmpty(_controller.RecordedState.LastSuccessUtc)
+                        ? UiStrings.T("ui.label.notAvailable")
+                        : _controller.RecordedState.LastSuccessUtc));
+            }
+
+            card.Add(fieldRow);
+            card.Add(advanced);
+            return card;
+        }
+
+        private VisualElement BuildDashboardCard()
+        {
+            var card = Card("ui.section.dashboard");
+            var metrics = DashboardModel.BuildMetrics(
+                _controller.Report,
+                _controller.Plan,
+                _controller.ChangeStatus != null
+                    ? _controller.ChangeStatus.Status
+                    : (_controller.RecordedState != null
+                        ? _controller.RecordedState.Status
+                        : OptimizationStatus.NotOptimized));
+
+            var grid = new VisualElement();
+            grid.AddToClassList("at-metric-grid");
+            for (var i = 0; i < metrics.Count; i++)
+            {
+                grid.Add(Metric(metrics[i]));
+            }
+
+            card.Add(grid);
+            return card;
+        }
+
+        private VisualElement Metric(MetricCard metric)
+        {
+            var card = new VisualElement();
+            card.AddToClassList("at-metric-card");
+            card.style.backgroundColor = UiTheme.CardBackground;
+            card.style.borderLeftColor = UiTheme.ForTone(metric.Tone);
+            card.style.borderRightColor = UiTheme.CardBorder;
+            card.style.borderTopColor = UiTheme.CardBorder;
+            card.style.borderBottomColor = UiTheme.CardBorder;
+            card.style.borderLeftWidth = 3;
+
+            var label = new Label(UiStrings.T(metric.LabelKey));
+            label.AddToClassList("at-metric-label");
+            label.style.color = UiTheme.TextSecondary;
+            card.Add(label);
+
+            var value = new Label(string.IsNullOrEmpty(metric.ValueKey) ? metric.Value : UiStrings.T(metric.ValueKey));
+            value.AddToClassList(metric.Emphasis == MetricEmphasis.Primary ? "at-metric-value" : "at-metric-value-sm");
+            value.style.color = metric.Emphasis == MetricEmphasis.Primary
+                ? UiTheme.ForTone(metric.Tone)
+                : UiTheme.Text;
+            card.Add(value);
+
+            var subText = metric.SubTextKey != null ? UiStrings.T(metric.SubTextKey) : metric.SubText;
+            if (!string.IsNullOrEmpty(subText))
+            {
+                var sub = new Label(subText);
+                sub.AddToClassList("at-metric-sub");
+                sub.style.color = UiTheme.TextSecondary;
+                card.Add(sub);
+            }
+
+            return card;
+        }
+
+        private VisualElement BuildInsightsCard(List<InsightItem> insights)
+        {
+            var card = Card("ui.section.insights");
+            for (var i = 0; i < insights.Count; i++)
+            {
+                var insight = insights[i];
+                var row = new VisualElement();
+                row.AddToClassList("at-insight");
+                row.Add(Dot(UiTheme.ForTone(insight.Tone)));
+
+                var text = new Label(UiStrings.T(insight.MessageKey, insight.Args.ToArray()));
+                text.AddToClassList("at-text");
+                text.style.color = insight.Tone == SemanticTone.Neutral
+                    ? UiTheme.TextSecondary
+                    : UiTheme.Text;
+                row.Add(text);
+                card.Add(row);
+            }
+
+            return card;
+        }
+
+        private VisualElement BuildPlanSummaryCard()
+        {
+            var plan = _controller.Plan;
+            var card = Card("ui.section.texturePlan");
+
+            card.Add(Line(UiStrings.T("results.texturePlanSummary",
+                plan.ChangedCount.ToString(CultureInfo.InvariantCulture),
+                plan.UnchangedCount.ToString(CultureInfo.InvariantCulture),
+                plan.ExcludedCount.ToString(CultureInfo.InvariantCulture))));
+
+            var savings = new VisualElement();
+            savings.AddToClassList("at-row");
+            savings.style.marginTop = 4;
+            savings.Add(BigValue(UiStrings.T("results.gpuMemoryBefore"),
+                TextureFormatInfo.FormatBytes(plan.SourceBytesTotal), UiTheme.TextSecondary));
+            savings.Add(BigValue("→", string.Empty, UiTheme.Neutral));
+            savings.Add(BigValue(UiStrings.T("results.gpuMemoryAfter"),
+                TextureFormatInfo.FormatBytes(plan.TargetBytesTotal), UiTheme.Accent));
+            savings.Add(BigValue(UiStrings.T("results.gpuMemorySaved"),
+                TextureFormatInfo.FormatBytes(plan.SavingBytes) + " (" +
+                plan.SavingPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%)",
+                plan.SavingBytes > 0 ? UiTheme.Success : UiTheme.TextSecondary));
+            card.Add(savings);
+
+            card.Add(Message(UiStrings.T("results.basisComputed"), UiTheme.Neutral));
+            return card;
+        }
+
+        // ===================================================================== module: textures
+
+        private void BuildTexturesModule(VisualElement container)
+        {
+            if (_controller.Report == null)
+            {
+                container.Add(EmptyState());
                 return;
             }
 
-            EditorGUILayout.HelpBox(UiStrings.T(_noticeKey, _noticeArgs.ToArray()), MessageType.Info);
-        }
+            container.Add(BuildAvatarCard());
 
-        private void ShowNotice(string key, params string[] args)
-        {
-            _noticeKey = key;
-            _noticeArgs.Clear();
-            if (args != null)
+            var toolbar = new VisualElement();
+            toolbar.AddToClassList("at-row");
+            toolbar.style.marginBottom = 6;
+
+            var filterField = new TextField();
+            filterField.label = UiStrings.T("ui.label.searchPlaceholder");
+            filterField.value = _filter;
+            filterField.tooltip = UiStrings.T("tip.exclusionList");
+            filterField.AddToClassList("at-field");
+            filterField.style.minWidth = 160;
+            filterField.RegisterValueChangedCallback(evt =>
             {
-                _noticeArgs.AddRange(args);
+                _filter = evt.newValue ?? string.Empty;
+                RefreshView();
+            });
+            toolbar.Add(filterField);
+
+            var sortPicker = new DropdownField();
+            sortPicker.label = UiStrings.T("ui.label.sort");
+            sortPicker.choices = new List<string>
+            {
+                UiStrings.T("ui.label.fileName"),
+                UiStrings.T("ui.label.gpuMemory"),
+                UiStrings.T("ui.label.saving"),
+                UiStrings.T("ui.label.status")
+            };
+            sortPicker.value = sortPicker.choices[(int)_sortMode];
+            sortPicker.AddToClassList("at-field");
+            sortPicker.RegisterValueChangedCallback(evt =>
+            {
+                for (var i = 0; i < sortPicker.choices.Count; i++)
+                {
+                    if (sortPicker.choices[i] == evt.newValue)
+                    {
+                        _sortMode = (TextureSortMode)i;
+                        RefreshView();
+                        return;
+                    }
+                }
+            });
+            toolbar.Add(sortPicker);
+
+            container.Add(toolbar);
+
+            var rows = TextureRows.BuildAll(_controller.Report, _controller.Plan);
+            rows = TextureRows.Filter(rows, _filter);
+            TextureRows.Sort(rows, _sortMode);
+
+            container.Add(BuildTextureTableHeader());
+
+            var shown = 0;
+            for (var i = 0; i < rows.Count; i++)
+            {
+                if (shown >= 200)
+                {
+                    container.Add(Line(UiStrings.T("ui.label.moreItems",
+                        (rows.Count - shown).ToString(CultureInfo.InvariantCulture))));
+                    break;
+                }
+
+                container.Add(BuildTextureRow(rows[i]));
+                shown++;
+            }
+
+            if (rows.Count == 0)
+            {
+                container.Add(Line(UiStrings.T("ui.label.tableEmpty")));
             }
         }
 
-        private void ClearNotice()
+        private VisualElement BuildTextureTableHeader()
         {
-            _noticeKey = null;
-            _noticeArgs.Clear();
+            var row = new VisualElement();
+            row.AddToClassList("at-row");
+            row.Add(HeaderCell("at-col-name", UiStrings.T("ui.label.sourceAsset")));
+            row.Add(HeaderCell("at-col-w70", UiStrings.T("ui.label.resolution")));
+            row.Add(HeaderCell("at-col-w110", UiStrings.T("ui.label.format")));
+            row.Add(HeaderCell("at-col-w95", UiStrings.T("ui.label.gpuMemory")));
+            row.Add(HeaderCell("at-col-w80", UiStrings.T("ui.label.saving")));
+            row.Add(HeaderCell("at-col-w110", UiStrings.T("ui.label.qualityRisk")));
+            row.Add(HeaderCell("at-col-w110", UiStrings.T("ui.label.status")));
+            row.Add(HeaderCell("at-col-w60", UiStrings.T("ui.label.include")));
+            return row;
         }
 
-        // ===================================================================== actions
+        private VisualElement BuildTextureRow(TextureRowModel model)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("at-row-card");
+            row.style.backgroundColor = UiTheme.CardBackground;
+            row.style.borderLeftColor = UiTheme.ForTone(TextureRowModel.StatusTone(model.Status));
+            row.style.borderRightColor = UiTheme.CardBorder;
+            row.style.borderTopColor = UiTheme.CardBorder;
+            row.style.borderBottomColor = UiTheme.CardBorder;
+            row.style.borderLeftWidth = 3;
+
+            row.Add(Thumbnail(model.Path));
+
+            var nameCol = new VisualElement();
+            nameCol.AddToClassList("at-col-name");
+            var name = new Label(model.Name);
+            name.AddToClassList("at-text-strong");
+            nameCol.Add(name);
+            var path = new Label(model.Path ?? string.Empty);
+            path.AddToClassList("at-text-secondary");
+            path.style.color = UiTheme.TextSecondary;
+            nameCol.Add(path);
+            row.Add(nameCol);
+
+            row.Add(Cell("at-col-w70", model.Width + "×" + model.Height, UiTheme.TextSecondary));
+            row.Add(Cell("at-col-w110", FormatCell(model), UiTheme.Text));
+            row.Add(Cell("at-col-w95", TextureFormatInfo.FormatBytes(model.SourceBytes), UiTheme.Text));
+            row.Add(Cell("at-col-w80", SavingCell(model),
+                model.SavingBytes > 0 ? UiTheme.Success : UiTheme.TextSecondary));
+            row.Add(RiskCell("at-col-w110", model.Risk));
+            row.Add(StatusCell("at-col-w110", model.Status));
+            row.Add(IncludeCell(model));
+
+            var detail = new Foldout();
+            detail.text = UiStrings.T("ui.label.detail");
+            detail.value = false;
+            detail.AddToClassList("at-details");
+            detail.Add(DetailRow("ui.label.usage", model.Usage.ToString()));
+            detail.Add(DetailRow("ui.label.materials",
+                model.MaterialCount.ToString(CultureInfo.InvariantCulture)));
+            if (!string.IsNullOrEmpty(model.SkipReasonKey))
+            {
+                detail.Add(DetailRow("ui.label.reason", UiStrings.T(model.SkipReasonKey)));
+            }
+
+            for (var n = 0; n < model.Notes.Count; n++)
+            {
+                detail.Add(Line("• " + UiStrings.T(model.Notes[n].Key, model.Notes[n].Args.ToArray())));
+            }
+
+            if (model.IsProtected)
+            {
+                detail.Add(Message(UiStrings.T("plan.note.protectedThirdParty"), UiTheme.Warning));
+            }
+
+            var ping = SecondaryButton("ui.button.ping", () => PingPath(model.Path));
+            ping.SetEnabled(true);
+            detail.Add(ping);
+            row.Add(detail);
+            return row;
+        }
+
+        private static string FormatCell(TextureRowModel model)
+        {
+            var current = model.FormatKnown && !string.IsNullOrEmpty(model.FormatText)
+                ? model.FormatText
+                : "—";
+            return string.IsNullOrEmpty(model.TargetFormatText)
+                ? current
+                : current + " → " + model.TargetFormatText;
+        }
+
+        private static string SavingCell(TextureRowModel model)
+        {
+            if (!model.HasChanges || model.SavingBytes <= 0)
+            {
+                return "—";
+            }
+
+            return TextureFormatInfo.FormatBytes(model.SavingBytes) + " (" +
+                   model.SavingPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%)";
+        }
+
+        private VisualElement Thumbnail(string path)
+        {
+            var holder = new VisualElement();
+            holder.AddToClassList("at-thumb");
+            try
+            {
+                if (!string.IsNullOrEmpty(path))
+                {
+                    var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
+                    var preview = asset != null ? AssetPreview.GetMiniThumbnail(asset) : null;
+                    if (preview != null)
+                    {
+                        var image = new Image();
+                        image.image = preview;
+                        image.scaleMode = ScaleMode.ScaleToFit;
+                        image.style.width = 30;
+                        image.style.height = 30;
+                        holder.Add(image);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // A missing thumbnail never breaks the list.
+            }
+
+            return holder;
+        }
+
+        // ===================================================================== module: materials
+
+        private void BuildMaterialsModule(VisualElement container)
+        {
+            if (_controller.Report == null)
+            {
+                container.Add(EmptyState());
+                return;
+            }
+
+            var report = _controller.Report;
+
+            var materials = Card("ui.label.materials");
+            materials.Add(HeaderRow(new[]
+            {
+                ("at-col-name", UiStrings.T("ui.label.sourceAsset")),
+                ("at-col-w130", UiStrings.T("ui.label.shader")),
+                ("at-col-w70", UiStrings.T("ui.label.textures"))
+            }));
+            for (var i = 0; i < report.Materials.Count; i++)
+            {
+                var material = report.Materials[i];
+                var row = new VisualElement();
+                row.AddToClassList("at-row");
+                row.Add(Cell("at-col-name", material.Name ?? material.Guid, UiTheme.Text));
+                row.Add(Cell("at-col-w130",
+                    string.IsNullOrEmpty(material.ShaderName) ? UiStrings.T("ui.label.unknown") : material.ShaderName,
+                    material.ShaderIsCustom ? UiTheme.Warning : UiTheme.TextSecondary));
+                row.Add(Cell("at-col-w70",
+                    material.TextureBindings.Count.ToString(CultureInfo.InvariantCulture), UiTheme.TextSecondary));
+                materials.Add(row);
+            }
+
+            if (report.Materials.Count == 0)
+            {
+                materials.Add(Line(UiStrings.T("ui.label.tableEmpty")));
+            }
+
+            container.Add(materials);
+
+            var meshes = Card("ui.label.meshes");
+            meshes.Add(HeaderRow(new[]
+            {
+                ("at-col-name", UiStrings.T("ui.label.sourceAsset")),
+                ("at-col-w80", UiStrings.T("ui.label.triangles")),
+                ("at-col-w70", UiStrings.T("ui.label.bones")),
+                ("at-col-w80", UiStrings.T("ui.label.blendShapes"))
+            }));
+            for (var i = 0; i < report.Renderers.Count; i++)
+            {
+                var renderer = report.Renderers[i];
+                var row = new VisualElement();
+                row.AddToClassList("at-row");
+                row.Add(Cell("at-col-name", renderer.Path, UiTheme.Text));
+                row.Add(Cell("at-col-w80", renderer.TriangleCount.ToString(CultureInfo.InvariantCulture), UiTheme.Text));
+                row.Add(Cell("at-col-w70", renderer.BoneCount.ToString(CultureInfo.InvariantCulture), UiTheme.TextSecondary));
+                row.Add(Cell("at-col-w80", renderer.BlendShapeCount.ToString(CultureInfo.InvariantCulture), UiTheme.TextSecondary));
+                meshes.Add(row);
+            }
+
+            if (report.Renderers.Count == 0)
+            {
+                meshes.Add(Line(UiStrings.T("ui.label.tableEmpty")));
+            }
+
+            container.Add(meshes);
+        }
+
+        // ===================================================================== module: compatibility
+
+        private void BuildCompatibilityModule(VisualElement container)
+        {
+            if (_controller.Report == null)
+            {
+                container.Add(EmptyState());
+                return;
+            }
+
+            var model = CompatibilityGrouper.Build(_controller.Report.Compatibility);
+            if (!model.HasAnything)
+            {
+                var card = Card("compat.title");
+                card.Add(Message(UiStrings.T("compat.noneFound"), UiTheme.Success));
+                container.Add(card);
+                return;
+            }
+
+            if (model.Blockers.Count > 0)
+            {
+                var conflicts = Card("ui.group.conflicts");
+                for (var i = 0; i < model.Blockers.Count; i++)
+                {
+                    conflicts.Add(Message(
+                        UiStrings.T(model.Blockers[i].MessageKey, model.Blockers[i].Args.ToArray()),
+                        UiTheme.Error));
+                }
+
+                container.Add(conflicts);
+            }
+
+            for (var i = 0; i < model.Tools.Count; i++)
+            {
+                container.Add(BuildToolGroup(model.Tools[i]));
+            }
+
+            if (model.Systems.Count > 0)
+            {
+                var systems = Card("ui.group.systems");
+                for (var i = 0; i < model.Systems.Count; i++)
+                {
+                    systems.Add(Message(
+                        UiStrings.T(model.Systems[i].MessageKey, model.Systems[i].Args.ToArray()),
+                        UiTheme.Info));
+                }
+
+                container.Add(systems);
+            }
+
+            if (model.GeneralWarnings.Count > 0)
+            {
+                var general = Card("compat.title");
+                for (var i = 0; i < model.GeneralWarnings.Count; i++)
+                {
+                    general.Add(Message(
+                        UiStrings.T(model.GeneralWarnings[i].MessageKey, model.GeneralWarnings[i].Args.ToArray()),
+                        UiTheme.Warning));
+                }
+
+                container.Add(general);
+            }
+
+            var footer = Card(null);
+            footer.Add(Message(UiStrings.T("compat.notModified"), UiTheme.Neutral));
+            if (model.Blockers.Count > 0 || model.GeneralWarnings.Count > 0 ||
+                HasToolWarnings(model))
+            {
+                footer.Add(Message(UiStrings.T("compat.manualInspection"), UiTheme.Warning));
+            }
+
+            container.Add(footer);
+        }
+
+        private static bool HasToolWarnings(CompatibilityViewModel model)
+        {
+            for (var i = 0; i < model.Tools.Count; i++)
+            {
+                if (model.Tools[i].Warnings.Count > 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private VisualElement BuildToolGroup(ToolGroup group)
+        {
+            var card = Card(null);
+
+            var header = new VisualElement();
+            header.AddToClassList("at-row");
+
+            var riskDot = Dot(UiTheme.ForRisk(group.Risk));
+            header.Add(riskDot);
+
+            var title = new Label(group.DisplayName);
+            title.AddToClassList("at-text-strong");
+            header.Add(title);
+
+            header.Add(Chip(UiStrings.T(RiskKey(group.Risk)), SemanticToneForRisk(group.Risk)));
+
+            if (group.ComponentCount > 0)
+            {
+                header.Add(Chip(UiStrings.T("ui.label.components") + ": " +
+                                group.ComponentCount.ToString(CultureInfo.InvariantCulture),
+                    SemanticTone.Neutral));
+            }
+            else
+            {
+                header.Add(Chip(UiStrings.T("ui.label.notAvailable"), SemanticTone.Neutral));
+            }
+
+            card.Add(header);
+
+            // The tool's explanation appears exactly once per tool group.
+            var message = new Label(UiStrings.T(group.MessageKey));
+            message.AddToClassList("at-text");
+            message.style.color = UiTheme.TextSecondary;
+            card.Add(message);
+
+            for (var w = 0; w < group.Warnings.Count; w++)
+            {
+                card.Add(Message(
+                    UiStrings.T(group.Warnings[w].MessageKey, group.Warnings[w].Args.ToArray()),
+                    UiTheme.Warning));
+            }
+
+            if (group.Markers.Count > 0)
+            {
+                var detail = new Foldout();
+                detail.text = UiStrings.T("ui.label.components");
+                detail.value = false;
+                detail.AddToClassList("at-details");
+
+                if (group.ComponentTypes.Count > 0)
+                {
+                    detail.Add(Line(UiStrings.T("ui.label.kind") + ": " +
+                                    string.Join(", ", group.ComponentTypes.ToArray())));
+                }
+
+                for (var m = 0; m < group.Markers.Count; m++)
+                {
+                    var markerRow = new VisualElement();
+                    markerRow.AddToClassList("at-row");
+                    markerRow.Add(Cell("at-col-name", group.Markers[m].Path ?? string.Empty, UiTheme.TextSecondary));
+
+                    var markerType = new Label(group.Markers[m].ComponentType ?? string.Empty);
+                    markerType.AddToClassList("at-text-secondary");
+                    markerType.style.color = UiTheme.TextSecondary;
+                    markerRow.Add(markerType);
+
+                    var capturedPath = group.Markers[m].Path;
+                    var ping = new Button(() => PingPath(capturedPath)) { text = UiStrings.T("ui.button.ping") };
+                    ping.AddToClassList("at-btn");
+                    ping.style.backgroundColor = UiTheme.ChipBackground;
+                    ping.style.color = UiTheme.Text;
+                    markerRow.Add(ping);
+                    detail.Add(markerRow);
+                }
+
+                card.Add(detail);
+            }
+
+            return card;
+        }
+
+        // ===================================================================== module: tracking
+
+        private void BuildTrackingModule(VisualElement container)
+        {
+            container.Add(BuildAvatarCard());
+
+            var status = _controller.ChangeStatus;
+            if (status == null)
+            {
+                var card = Card("ui.section.changeTracking");
+                card.Add(Line(UiStrings.T("ui.label.tableEmpty")));
+                container.Add(card);
+                return;
+            }
+
+            var statusCard = Card("ui.section.changeTracking");
+            var tone = DashboardModel.StatusTone(status.Status);
+            var row = new VisualElement();
+            row.AddToClassList("at-insight");
+            row.Add(Dot(UiTheme.ForTone(tone)));
+            var col = new VisualElement();
+            col.AddToClassList("at-col");
+            var name = new Label(UiStrings.T(DashboardModel.StatusNameKey(status.Status)));
+            name.AddToClassList("at-text-strong");
+            col.Add(name);
+            var summary = new Label(UiStrings.T(status.SummaryKey));
+            summary.AddToClassList("at-text-secondary");
+            summary.style.color = UiTheme.TextSecondary;
+            col.Add(summary);
+            row.Add(col);
+            statusCard.Add(row);
+
+            var counts = new VisualElement();
+            counts.AddToClassList("at-row");
+            counts.style.marginTop = 6;
+            counts.Add(Chip(UiStrings.T("ui.label.changedFiles") + ": " +
+                            status.Changes.Count.ToString(CultureInfo.InvariantCulture), SemanticTone.Neutral));
+            counts.Add(Chip(UiStrings.T("ui.label.staleOutputs") + ": " +
+                            status.StaleGeneratedPaths.Count.ToString(CultureInfo.InvariantCulture),
+                status.StaleGeneratedPaths.Count > 0 ? SemanticTone.Warning : SemanticTone.Success));
+            counts.Add(Chip(UiStrings.T("ui.label.validOutputs") + ": " +
+                            status.ValidGeneratedPaths.Count.ToString(CultureInfo.InvariantCulture),
+                SemanticTone.Success));
+            statusCard.Add(counts);
+            container.Add(statusCard);
+
+            if (status.Changes.Count > 0)
+            {
+                var changes = Card("ui.label.changedFiles");
+                for (var i = 0; i < status.Changes.Count; i++)
+                {
+                    var change = status.Changes[i];
+                    changes.Add(Message(
+                        UiStrings.T(change.DetailKey, change.Args.ToArray()),
+                        change.InvalidatesEverything ? UiTheme.Error : UiTheme.Warning));
+                }
+
+                container.Add(changes);
+            }
+
+            if (_controller.RecordedState != null)
+            {
+                var recorded = Card("ui.label.detail");
+                recorded.Add(DetailRow("ui.label.toolVersion",
+                    _controller.RecordedState.ToolVersionAtOptimization));
+                recorded.Add(DetailRow("ui.label.engineVersion",
+                    _controller.RecordedState.EngineVersionAtOptimization));
+                recorded.Add(DetailRow("ui.label.lastOptimized",
+                    string.IsNullOrEmpty(_controller.RecordedState.LastSuccessUtc)
+                        ? UiStrings.T("ui.label.notAvailable")
+                        : _controller.RecordedState.LastSuccessUtc));
+                recorded.Add(DetailRow("ui.label.outputFolder", GeneratedAssetStore.GeneratedRoot));
+
+                var buttons = new VisualElement();
+                buttons.AddToClassList("at-row");
+                buttons.style.marginTop = 6;
+                buttons.Add(SecondaryButton("ui.button.viewManifest", OpenManifest));
+                buttons.Add(SecondaryButton("ui.button.openOutputFolder",
+                    () => EditorUtility.RevealInFinder(GeneratedAssetStore.GeneratedRoot)));
+                recorded.Add(buttons);
+                container.Add(recorded);
+            }
+        }
+
+        // ===================================================================== module: results
+
+        private void BuildResultsModule(VisualElement container)
+        {
+            var generation = _controller.Generation;
+            var card = Card("ui.section.output");
+
+            if (generation == null)
+            {
+                card.Add(Message(UiStrings.T("results.noResultsYet"), UiTheme.Info));
+                container.Add(card);
+                return;
+            }
+
+            var plan = _controller.Plan;
+            var row = new VisualElement();
+            row.AddToClassList("at-row");
+            if (plan != null)
+            {
+                row.Add(BigValue(UiStrings.T("results.gpuMemoryBefore"),
+                    TextureFormatInfo.FormatBytes(plan.SourceBytesTotal), UiTheme.TextSecondary));
+                row.Add(BigValue("→", string.Empty, UiTheme.Neutral));
+                row.Add(BigValue(UiStrings.T("results.gpuMemoryAfter"),
+                    TextureFormatInfo.FormatBytes(plan.TargetBytesTotal), UiTheme.Accent));
+                row.Add(BigValue(UiStrings.T("results.gpuMemorySaved"),
+                    TextureFormatInfo.FormatBytes(plan.SavingBytes),
+                    plan.SavingBytes > 0 ? UiTheme.Success : UiTheme.TextSecondary));
+            }
+
+            card.Add(row);
+
+            long diskBefore = 0;
+            if (plan != null && _controller.Report != null)
+            {
+                for (var i = 0; i < plan.Textures.Count; i++)
+                {
+                    var entry = _controller.Report.FindTexture(plan.Textures[i].TextureGuid);
+                    if (entry != null)
+                    {
+                        diskBefore += entry.SourceFileSizeBytes;
+                    }
+                }
+            }
+
+            long diskAfter = 0;
+            for (var i = 0; i < generation.Generated.Count; i++)
+            {
+                diskAfter += generation.Generated[i].GeneratedFileSizeBytes;
+            }
+
+            var diskRow = new VisualElement();
+            diskRow.AddToClassList("at-row");
+            diskRow.Add(BigValue(UiStrings.T("results.diskBefore"),
+                TextureFormatInfo.FormatBytes(diskBefore), UiTheme.TextSecondary));
+            diskRow.Add(BigValue("→", string.Empty, UiTheme.Neutral));
+            diskRow.Add(BigValue(UiStrings.T("results.diskAfter"),
+                TextureFormatInfo.FormatBytes(diskAfter), UiTheme.Text));
+            diskRow.Add(Chip(UiStrings.T("ui.label.measured"), SemanticTone.Success));
+            card.Add(diskRow);
+
+            card.Add(Message(UiStrings.T("results.generatedDependencies",
+                generation.Generated.Count.ToString(CultureInfo.InvariantCulture),
+                generation.Generated.Count.ToString(CultureInfo.InvariantCulture)), UiTheme.Neutral));
+            card.Add(Message(UiStrings.T("results.basisComputed"), UiTheme.Neutral));
+            card.Add(Message(UiStrings.T("results.disclaimer"), UiTheme.Neutral));
+
+            if (generation.SkippedCount > 0)
+            {
+                card.Add(Message(UiStrings.T("opt.skippedUnsupported",
+                    generation.SkippedCount.ToString(CultureInfo.InvariantCulture)), UiTheme.Warning));
+            }
+
+            card.Add(DetailRow("ui.label.outputFolder", generation.OutputFolder ?? string.Empty));
+
+            var buttons = new VisualElement();
+            buttons.AddToClassList("at-row");
+            buttons.Add(SecondaryButton("ui.button.openOutputFolder",
+                () => EditorUtility.RevealInFinder(GeneratedAssetStore.GeneratedRoot)));
+            buttons.Add(SecondaryButton("ui.button.exportReport", ExportReport));
+            card.Add(buttons);
+
+            container.Add(card);
+        }
+
+        // ===================================================================== module: settings
+
+        private void BuildSettingsModule(VisualElement container)
+        {
+            container.Add(BuildPresetCard());
+            container.Add(BuildOverrideCard());
+            container.Add(BuildPreferencesCard());
+        }
+
+        private VisualElement BuildPresetCard()
+        {
+            var card = Card("ui.section.quality");
+            card.Add(Message(UiStrings.T("tip.presetField"), UiTheme.Neutral));
+
+            var row = new VisualElement();
+            row.AddToClassList("at-row-top");
+            foreach (OptimizationPreset preset in Enum.GetValues(typeof(OptimizationPreset)))
+            {
+                var captured = preset;
+                var selected = _controller.Preset == preset;
+                var presetCard = new Button(() =>
+                {
+                    _controller.Preset = captured;
+                    _controller.RebuildPlan();
+                    RefreshView();
+                });
+                presetCard.AddToClassList("at-card");
+                presetCard.style.backgroundColor = selected
+                    ? UiTheme.SelectedBackground
+                    : UiTheme.CardBackground;
+                presetCard.style.borderLeftColor = selected ? UiTheme.Accent : UiTheme.CardBorder;
+                presetCard.style.borderRightColor = UiTheme.CardBorder;
+                presetCard.style.borderTopColor = UiTheme.CardBorder;
+                presetCard.style.borderBottomColor = UiTheme.CardBorder;
+                presetCard.style.borderLeftWidth = selected ? 3 : 1;
+                presetCard.style.flexGrow = 1;
+                presetCard.style.minWidth = 150;
+
+                var titleRow = new VisualElement();
+                titleRow.AddToClassList("at-row");
+                titleRow.Add(Dot(selected ? UiTheme.Accent : UiTheme.Neutral));
+                var name = new Label(UiStrings.T(PresetNameKey(preset)));
+                name.AddToClassList("at-text-strong");
+                titleRow.Add(name);
+                presetCard.Add(titleRow);
+
+                var description = new Label(UiStrings.T(PresetDescriptionKey(preset)));
+                description.AddToClassList("at-text-secondary");
+                description.style.color = UiTheme.TextSecondary;
+                presetCard.Add(description);
+
+                row.Add(presetCard);
+            }
+
+            card.Add(row);
+            return card;
+        }
+
+        private VisualElement BuildOverrideCard()
+        {
+            var card = Card("ui.section.overrides");
+
+            var buttons = new VisualElement();
+            buttons.AddToClassList("at-row");
+            buttons.Add(SecondaryButton("ui.button.revertOverrides",
+                () => { _controller.ClearOverrides(); RefreshView(); }));
+            buttons.Add(SecondaryButton("ui.button.clearExclusions",
+                () => { ClearExclusions(); RefreshView(); }));
+            buttons.Add(SecondaryButton("ui.button.selectAll",
+                () => { SetAllIncluded(true); RefreshView(); }));
+            buttons.Add(SecondaryButton("ui.button.selectNone",
+                () => { SetAllIncluded(false); RefreshView(); }));
+            card.Add(buttons);
+
+            card.Add(Message(UiStrings.T("tip.exclusionList"), UiTheme.Neutral));
+
+            if (_controller.Plan == null)
+            {
+                card.Add(Line(UiStrings.T("ui.hint.analyzeFirst")));
+                return card;
+            }
+
+            // Advanced per-texture controls stay collapsed until the user asks for them.
+            var list = new Foldout();
+            list.text = UiStrings.T("ui.section.advanced");
+            list.value = false;
+            list.AddToClassList("at-details");
+
+            var shown = 0;
+            for (var i = 0; i < _controller.Plan.Textures.Count; i++)
+            {
+                var planned = _controller.Plan.Textures[i];
+                if (shown >= 100)
+                {
+                    list.Add(Line(UiStrings.T("ui.label.moreItems",
+                        (_controller.Plan.Textures.Count - shown).ToString(CultureInfo.InvariantCulture))));
+                    break;
+                }
+
+                var row = new VisualElement();
+                row.AddToClassList("at-row");
+                row.Add(Cell("at-col-name", planned.TextureName ?? planned.TextureGuid, UiTheme.Text));
+
+                row.Add(OverrideToggle(planned, "ui.label.resolution",
+                    planned.Override != null && planned.Override.KeepResolution, value =>
+                    {
+                        var ovr = planned.Override ?? new TextureOverride();
+                        ovr.KeepResolution = value;
+                        _controller.SetOverride(planned.TextureGuid, ovr);
+                    }));
+                row.Add(OverrideToggle(planned, "ui.label.format",
+                    planned.Override != null && planned.Override.KeepFormat, value =>
+                    {
+                        var ovr = planned.Override ?? new TextureOverride();
+                        ovr.KeepFormat = value;
+                        _controller.SetOverride(planned.TextureGuid, ovr);
+                    }));
+
+                list.Add(row);
+                shown++;
+            }
+
+            card.Add(list);
+            return card;
+        }
+
+        private VisualElement OverrideToggle(
+            PlannedTexture planned, string labelKey, bool value, Action<bool> onChanged)
+        {
+            var toggle = new Toggle(UiStrings.T(labelKey));
+            toggle.value = value;
+            toggle.SetEnabled(!planned.ProtectedByThirdParty);
+            if (planned.ProtectedByThirdParty)
+            {
+                toggle.tooltip = UiStrings.T("plan.note.protectedThirdParty");
+            }
+
+            toggle.AddToClassList("at-col-w95");
+            toggle.RegisterValueChangedCallback(evt => onChanged(evt.newValue));
+            return toggle;
+        }
+
+        private VisualElement BuildPreferencesCard()
+        {
+            var card = Card("ui.section.preferences");
+
+            var includeInactive = new Toggle(UiStrings.T("ui.toggle.includeInactive"));
+            includeInactive.value = _controller.IncludeInactive;
+            includeInactive.tooltip = UiStrings.T("tip.includeInactive");
+            includeInactive.RegisterValueChangedCallback(evt =>
+            {
+                _controller.IncludeInactive = evt.newValue;
+                if (_controller.Report != null)
+                {
+                    RunAnalyze();
+                }
+            });
+            card.Add(includeInactive);
+
+            var measureQuality = new Toggle(UiStrings.T("ui.toggle.measureQuality"));
+            measureQuality.value = _controller.MeasureQuality;
+            measureQuality.tooltip = UiStrings.T("tip.measureQuality");
+            measureQuality.RegisterValueChangedCallback(evt => _controller.MeasureQuality = evt.newValue);
+            card.Add(measureQuality);
+
+            var overwrite = new Toggle(UiStrings.T("ui.toggle.overwriteGenerated"));
+            overwrite.value = _controller.OverwriteGenerated;
+            overwrite.tooltip = UiStrings.T("tip.outputFolder");
+            overwrite.RegisterValueChangedCallback(evt => _controller.OverwriteGenerated = evt.newValue);
+            card.Add(overwrite);
+
+            card.Add(Message(UiStrings.T("tip.qualityEstimate"), UiTheme.Neutral));
+            card.Add(Message(UiStrings.T("tip.qualityMeasure"), UiTheme.Neutral));
+            card.Add(DetailRow("ui.label.outputFolder", GeneratedAssetStore.GeneratedRoot));
+
+            var advanced = new Foldout();
+            advanced.text = UiStrings.T("ui.section.advanced");
+            advanced.value = false;
+            advanced.AddToClassList("at-details");
+            advanced.Add(DetailRow("ui.label.toolVersion", GeneratedAssetStore.ToolVersion));
+            advanced.Add(DetailRow("ui.label.engineVersion", Application.unityVersion));
+            advanced.Add(DetailRow("ui.label.dependencies",
+                _controller.Report != null
+                    ? _controller.Report.PossibleBuildTimeDependencies.Count.ToString(CultureInfo.InvariantCulture)
+                    : UiStrings.T("ui.label.notAvailable")));
+            card.Add(advanced);
+
+            return card;
+        }
+
+        // ===================================================================== actions (operations)
 
         private void RunAnalyze()
         {
@@ -384,6 +1644,8 @@ namespace AvatarTuner.Editor.UI
             {
                 EditorUtility.ClearProgressBar();
             }
+
+            RefreshView();
         }
 
         private void RunOptimize()
@@ -415,7 +1677,7 @@ namespace AvatarTuner.Editor.UI
             }
 
             _cancelRequested = false;
-            var succeeded = false;
+            bool succeeded;
             try
             {
                 succeeded = _controller.RunOptimization(OnOptimizationProgress, () => _cancelRequested);
@@ -428,15 +1690,15 @@ namespace AvatarTuner.Editor.UI
             if (succeeded)
             {
                 ShowNotice("opt.done");
-                _tab = 3;
+                _module = ModuleResults;
             }
             else if (_cancelRequested)
             {
                 ShowNotice("opt.cancelled");
             }
-        }
 
-        private bool _cancelRequested;
+            RefreshView();
+        }
 
         private void OnOptimizationProgress(float value, string phaseKey)
         {
@@ -460,7 +1722,6 @@ namespace AvatarTuner.Editor.UI
                         total.ToString(CultureInfo.InvariantCulture)),
                     value))
             {
-                // Confirm before stopping: written files are kept and recorded either way.
                 if (EditorUtility.DisplayDialog(
                         UiStrings.T("dlg.cancelRun.title"),
                         UiStrings.T("dlg.cancelRun.message"),
@@ -489,849 +1750,19 @@ namespace AvatarTuner.Editor.UI
 
             _controller.CleanupGenerated();
             ShowNotice("opt.done");
+            RefreshView();
         }
 
-        // ===================================================================== tab: overview
-
-        private void DrawOverview()
+        private void OpenManifest()
         {
-            Section("ui.section.scanSummary");
-            if (_controller.Report == null)
+            var manifest = AssetDatabase.LoadAssetAtPath<TextAsset>(GeneratedAssetStore.ManifestPath);
+            if (manifest != null)
             {
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.tableEmpty"));
+                AssetDatabase.OpenAsset(manifest);
             }
             else
             {
-                DrawScanSummaries(_controller.Report);
-            }
-
-            Section("ui.section.compatibility");
-            DrawCompatibility();
-
-            Section("ui.section.recommendations");
-            DrawFindings();
-        }
-
-        private void DrawScanSummaries(AvatarAnalysisReport report)
-        {
-            var plan = _controller.Plan;
-            var gpuBefore = plan != null ? plan.SourceBytesTotal : 0L;
-            EditorGUILayout.LabelField(UiStrings.T("analysis.textureSummary",
-                report.Textures.Count.ToString(CultureInfo.InvariantCulture),
-                report.Materials.Count.ToString(CultureInfo.InvariantCulture),
-                TextureFormatInfo.FormatBytes(gpuBefore)));
-
-            var uniqueTriangles = report.UniqueMeshTriangles;
-            EditorGUILayout.LabelField(UiStrings.T("analysis.meshSummary",
-                CountUniqueMeshes(report).ToString(CultureInfo.InvariantCulture),
-                report.Renderers.Count.ToString(CultureInfo.InvariantCulture),
-                uniqueTriangles.ToString(CultureInfo.InvariantCulture),
-                FirstBoneCount(report).ToString(CultureInfo.InvariantCulture),
-                report.TotalBlendShapes.ToString(CultureInfo.InvariantCulture)));
-
-            var swapCurves = 0;
-            for (var i = 0; i < report.Animators.Count; i++)
-            {
-                swapCurves += report.Animators[i].MaterialSwapTargets.Count;
-            }
-
-            EditorGUILayout.LabelField(UiStrings.T("analysis.animatorSummary",
-                report.Animators.Count.ToString(CultureInfo.InvariantCulture),
-                CountClips(report).ToString(CultureInfo.InvariantCulture),
-                swapCurves.ToString(CultureInfo.InvariantCulture)));
-
-            var physBones = 0;
-            var contacts = 0;
-            for (var i = 0; i < report.DynamicComponents.Count; i++)
-            {
-                var kind = report.DynamicComponents[i].KindKey ?? string.Empty;
-                if (kind == "finding.kind.physBone" || kind == "finding.kind.physBoneCollider")
-                {
-                    physBones++;
-                }
-                else if (kind == "finding.kind.contactSender" || kind == "finding.kind.contactReceiver")
-                {
-                    contacts++;
-                }
-            }
-
-            EditorGUILayout.LabelField(UiStrings.T("analysis.dynamicSummary",
-                physBones.ToString(CultureInfo.InvariantCulture),
-                contacts.ToString(CultureInfo.InvariantCulture)));
-
-            if (report.InactiveObjects.Count > 0)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("analysis.inactiveSummary",
-                    report.InactiveObjects.Count.ToString(CultureInfo.InvariantCulture)));
-            }
-
-            var shared = 0;
-            for (var i = 0; i < report.Textures.Count; i++)
-            {
-                if (report.Textures[i].Sharing != SharingKind.Unique)
-                {
-                    shared++;
-                }
-            }
-
-            if (shared > 0)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("analysis.sharedSummary",
-                    shared.ToString(CultureInfo.InvariantCulture)));
-            }
-
-            if (report.PossibleBuildTimeDependencies.Count > 0)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("analysis.buildTimeSummary",
-                    report.PossibleBuildTimeDependencies.Count.ToString(CultureInfo.InvariantCulture)));
-            }
-
-            if (plan != null)
-            {
-                var shaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                for (var i = 0; i < report.Materials.Count; i++)
-                {
-                    if (!string.IsNullOrEmpty(report.Materials[i].ShaderName))
-                    {
-                        shaders.Add(report.Materials[i].ShaderName);
-                    }
-                }
-
-                EditorGUILayout.LabelField(UiStrings.T("analysis.shaderSummary",
-                    shaders.Count.ToString(CultureInfo.InvariantCulture),
-                    report.Materials.Count.ToString(CultureInfo.InvariantCulture)));
-
-                var large = 0;
-                var threshold = 4L * 1024L * 1024L;
-                for (var i = 0; i < plan.Textures.Count; i++)
-                {
-                    if (plan.Textures[i].Plan != null && plan.Textures[i].Plan.SourceBytes > threshold)
-                    {
-                        large++;
-                    }
-                }
-
-                if (large > 0)
-                {
-                    EditorGUILayout.LabelField(UiStrings.T("analysis.largeTextures",
-                        large.ToString(CultureInfo.InvariantCulture),
-                        TextureFormatInfo.FormatBytes(threshold)));
-                }
-            }
-        }
-
-        private void DrawCompatibility()
-        {
-            var report = _controller.Report;
-            if (report == null)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.tableEmpty"));
-                return;
-            }
-
-            var compat = report.Compatibility;
-            if (compat.DetectedTools.Count == 0 && compat.Notices.Count == 0 &&
-                compat.Warnings.Count == 0 && compat.Blockers.Count == 0)
-            {
-                EditorGUILayout.HelpBox(UiStrings.T("compat.noneFound"), MessageType.Info);
-                return;
-            }
-
-            if (compat.DetectedTools.Count > 0)
-            {
-                var names = new List<string>();
-                for (var i = 0; i < compat.DetectedTools.Count; i++)
-                {
-                    names.Add(compat.DetectedTools[i].DisplayName);
-                }
-
-                EditorGUILayout.LabelField(UiStrings.T("compat.detected", string.Join(", ", names.ToArray())),
-                    EditorStyles.boldLabel);
-            }
-
-            EditorGUILayout.HelpBox(UiStrings.T("compat.notModified"), MessageType.None);
-
-            for (var i = 0; i < compat.DetectedTools.Count; i++)
-            {
-                var tool = compat.DetectedTools[i];
-                EditorGUILayout.LabelField(
-                    tool.DisplayName + "  [" + UiStrings.T(RiskKey(tool.Risk)) + "]",
-                    string.IsNullOrEmpty(tool.Path) ? tool.ComponentType : tool.Path);
-                EditorGUILayout.LabelField(UiStrings.T(tool.MessageKey), EditorStyles.miniLabel);
-            }
-
-            DrawFindings(compat.Blockers, MessageType.Error);
-            DrawFindings(compat.Warnings, MessageType.Warning);
-            DrawFindings(compat.Notices, MessageType.None);
-
-            if (compat.Warnings.Count > 0 || compat.Blockers.Count > 0)
-            {
-                EditorGUILayout.HelpBox(UiStrings.T("compat.manualInspection"), MessageType.Warning);
-            }
-        }
-
-        private void DrawFindings()
-        {
-            if (_controller.Report == null)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.tableEmpty"));
-                return;
-            }
-
-            if (_controller.Report.Findings.Count == 0)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.tableEmpty"));
-                return;
-            }
-
-            EditorGUILayout.LabelField(UiStrings.T("analysis.recommendationTitle"), EditorStyles.boldLabel);
-            DrawFindings(_controller.Report.Findings, MessageType.None);
-            if (_controller.Plan != null)
-            {
-                DrawFindings(_controller.Plan.Findings, MessageType.None);
-            }
-        }
-
-        private void DrawFindings(List<AnalysisFinding> findings, MessageType type)
-        {
-            for (var i = 0; i < findings.Count; i++)
-            {
-                EditorGUILayout.HelpBox(
-                    UiStrings.T(findings[i].MessageKey, findings[i].Args.ToArray()), type);
-            }
-        }
-
-        // ===================================================================== tab: textures
-
-        private void DrawTextures()
-        {
-            if (_controller.Report == null)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.tableEmpty"));
-                return;
-            }
-
-            _filter = EditorGUILayout.TextField(
-                new GUIContent(UiStrings.T("ui.label.searchPlaceholder")), _filter);
-
-            DrawTextureHeader();
-            var shown = 0;
-            for (var i = 0; i < _controller.Report.Textures.Count; i++)
-            {
-                var entry = _controller.Report.Textures[i];
-                if (!PassesFilter(entry.Name, entry.Path))
-                {
-                    continue;
-                }
-
-                if (shown >= MaxTableRows)
-                {
-                    EditorGUILayout.LabelField(UiStrings.T("ui.label.moreItems",
-                        (_controller.Report.Textures.Count - shown).ToString(CultureInfo.InvariantCulture)));
-                    break;
-                }
-
-                DrawTextureRow(entry);
-                shown++;
-            }
-
-            if (shown == 0)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.tableEmpty"));
-            }
-        }
-
-        private void DrawTextureHeader()
-        {
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.sourceAsset"), EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.resolution"), EditorStyles.boldLabel, GUILayout.Width(90));
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.format"), EditorStyles.boldLabel, GUILayout.Width(70));
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.usage"), EditorStyles.boldLabel, GUILayout.Width(110));
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.sharedAssets"), EditorStyles.boldLabel, GUILayout.Width(60));
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.include"), EditorStyles.boldLabel, GUILayout.Width(56));
-            EditorGUILayout.EndHorizontal();
-        }
-
-        private void DrawTextureRow(TextureEntry entry)
-        {
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(entry.Name ?? entry.Guid);
-            EditorGUILayout.LabelField(entry.Width + " × " + entry.Height, GUILayout.Width(90));
-            EditorGUILayout.LabelField(
-                entry.CurrentFormatKnown ? entry.CurrentFormatName : UiStrings.T("ui.label.unknown"),
-                GUILayout.Width(70));
-            EditorGUILayout.LabelField(entry.Usage.ToString(), GUILayout.Width(110));
-            EditorGUILayout.LabelField(
-                entry.Sharing == SharingKind.Unique ? UiStrings.T("ui.label.no") : UiStrings.T("ui.label.yes"),
-                GUILayout.Width(60));
-
-            var planned = FindPlanned(entry.Guid);
-            var isProtected = planned != null && planned.ProtectedByThirdParty;
-            var included = planned == null || planned.Plan == null || !planned.Plan.IsExcluded;
-
-            EditorGUI.BeginDisabledGroup(isProtected);
-            var next = EditorGUILayout.Toggle(included, GUILayout.Width(56));
-            if (next != included && entry.Guid != null)
-            {
-                var ovr = _controller.Overrides.ContainsKey(entry.Guid)
-                    ? _controller.Overrides[entry.Guid]
-                    : new TextureOverride();
-                ovr.Excluded = !next;
-                _controller.SetOverride(entry.Guid, ovr);
-            }
-
-            EditorGUI.EndDisabledGroup();
-            EditorGUILayout.EndHorizontal();
-
-            if (isProtected)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("plan.note.protectedThirdParty"), EditorStyles.miniLabel);
-            }
-        }
-
-        private PlannedTexture FindPlanned(string guid)
-        {
-            if (_controller.Plan == null || string.IsNullOrEmpty(guid))
-            {
-                return null;
-            }
-
-            for (var i = 0; i < _controller.Plan.Textures.Count; i++)
-            {
-                if (string.Equals(_controller.Plan.Textures[i].TextureGuid, guid, StringComparison.OrdinalIgnoreCase))
-                {
-                    return _controller.Plan.Textures[i];
-                }
-            }
-
-            return null;
-        }
-
-        // ===================================================================== tab: preview
-
-        private void DrawPreview()
-        {
-            var plan = _controller.Plan;
-            if (plan == null)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.tableEmpty"));
-                return;
-            }
-
-            Section("ui.section.texturePlan");
-            EditorGUILayout.LabelField(UiStrings.T("results.texturePlanSummary",
-                plan.ChangedCount.ToString(CultureInfo.InvariantCulture),
-                plan.UnchangedCount.ToString(CultureInfo.InvariantCulture),
-                plan.ExcludedCount.ToString(CultureInfo.InvariantCulture)));
-
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.sourceAsset"), EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.format"), EditorStyles.boldLabel, GUILayout.Width(110));
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.resolution"), EditorStyles.boldLabel, GUILayout.Width(110));
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.size"), EditorStyles.boldLabel, GUILayout.Width(110));
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.saving"), EditorStyles.boldLabel, GUILayout.Width(64));
-            EditorGUILayout.EndHorizontal();
-
-            for (var i = 0; i < plan.Textures.Count; i++)
-            {
-                DrawPlanRow(plan.Textures[i]);
-            }
-
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField(
-                UiStrings.T("results.gpuMemoryBefore") + ": " + TextureFormatInfo.FormatBytes(plan.SourceBytesTotal));
-            EditorGUILayout.LabelField(
-                UiStrings.T("results.gpuMemoryAfter") + ": " + TextureFormatInfo.FormatBytes(plan.TargetBytesTotal));
-            EditorGUILayout.LabelField(
-                UiStrings.T("results.gpuMemorySaved") + ": " + TextureFormatInfo.FormatBytes(plan.SavingBytes) +
-                " (" + plan.SavingPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%)");
-            EditorGUILayout.HelpBox(UiStrings.T("results.basisComputed"), MessageType.None);
-        }
-
-        private void DrawPlanRow(PlannedTexture planned)
-        {
-            var plan = planned.Plan;
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(planned.TextureName ?? planned.TextureGuid);
-            EditorGUILayout.LabelField(
-                FormatFormat(plan.SourceFormat) + " → " + FormatFormat(plan.TargetFormat),
-                GUILayout.Width(110));
-            EditorGUILayout.LabelField(
-                plan.SourceWidth + "×" + plan.SourceHeight + " → " + plan.TargetWidth + "×" + plan.TargetHeight,
-                GUILayout.Width(110));
-            EditorGUILayout.LabelField(
-                TextureFormatInfo.FormatBytes(plan.SourceBytes) + " → " + TextureFormatInfo.FormatBytes(plan.TargetBytes),
-                GUILayout.Width(110));
-            EditorGUILayout.LabelField(
-                plan.SavingPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%",
-                GUILayout.Width(64));
-            EditorGUILayout.EndHorizontal();
-
-            if (!string.IsNullOrEmpty(plan.SkipReasonKey))
-            {
-                EditorGUILayout.LabelField(
-                    UiStrings.T("ui.label.reason") + ": " + UiStrings.T(plan.SkipReasonKey),
-                    EditorStyles.miniLabel);
-            }
-
-            for (var n = 0; n < plan.Notes.Count; n++)
-            {
-                var note = plan.Notes[n];
-                if (note.Level == PlanNote.Severity.Info)
-                {
-                    EditorGUILayout.LabelField("• " + UiStrings.T(note.Key, note.Args.ToArray()), EditorStyles.miniLabel);
-                }
-            }
-
-            DrawPlanWarnings(planned);
-        }
-
-        private void DrawPlanWarnings(PlannedTexture planned)
-        {
-            var plan = planned.Plan;
-            for (var n = 0; n < plan.Notes.Count; n++)
-            {
-                if (plan.Notes[n].Level != PlanNote.Severity.Info)
-                {
-                    EditorGUILayout.HelpBox(
-                        UiStrings.T(plan.Notes[n].Key, plan.Notes[n].Args.ToArray()),
-                        plan.Notes[n].Level == PlanNote.Severity.Error ? MessageType.Error : MessageType.Warning);
-                }
-            }
-        }
-
-        private static string FormatFormat(TunerTextureFormat format)
-        {
-            return TextureFormatInfo.DisplayName(format);
-        }
-
-        // ===================================================================== tab: results
-
-        private void DrawResults()
-        {
-            Section("ui.section.output");
-            var generation = _controller.Generation;
-            if (generation == null)
-            {
-                EditorGUILayout.HelpBox(UiStrings.T("results.noResultsYet"), MessageType.Info);
-                return;
-            }
-
-            EditorGUILayout.LabelField(UiStrings.T("results.title"), EditorStyles.boldLabel);
-            var plan = _controller.Plan;
-            if (plan != null)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("results.gpuMemoryBefore") + ": " +
-                                           TextureFormatInfo.FormatBytes(plan.SourceBytesTotal));
-                EditorGUILayout.LabelField(UiStrings.T("results.gpuMemoryAfter") + ": " +
-                                           TextureFormatInfo.FormatBytes(plan.TargetBytesTotal));
-                EditorGUILayout.LabelField(UiStrings.T("results.gpuMemorySaved") + ": " +
-                                           TextureFormatInfo.FormatBytes(plan.SavingBytes));
-            }
-
-            long diskBefore = 0;
-            if (plan != null)
-            {
-                for (var i = 0; i < plan.Textures.Count; i++)
-                {
-                    var entry = _controller.Report != null ? _controller.Report.FindTexture(plan.Textures[i].TextureGuid) : null;
-                    if (entry != null)
-                    {
-                        diskBefore += entry.SourceFileSizeBytes;
-                    }
-                }
-            }
-
-            long diskAfter = 0;
-            for (var i = 0; i < generation.Generated.Count; i++)
-            {
-                diskAfter += generation.Generated[i].GeneratedFileSizeBytes;
-            }
-
-            EditorGUILayout.LabelField(UiStrings.T("results.diskBefore") + ": " + TextureFormatInfo.FormatBytes(diskBefore));
-            EditorGUILayout.LabelField(UiStrings.T("results.diskAfter") + ": " + TextureFormatInfo.FormatBytes(diskAfter));
-            EditorGUILayout.LabelField(UiStrings.T("results.generatedDependencies",
-                generation.Generated.Count.ToString(CultureInfo.InvariantCulture),
-                generation.Generated.Count.ToString(CultureInfo.InvariantCulture)));
-            EditorGUILayout.HelpBox(UiStrings.T("results.basisComputed"), MessageType.None);
-            EditorGUILayout.HelpBox(UiStrings.T("results.disclaimer"), MessageType.None);
-
-            if (generation.SkippedCount > 0)
-            {
-                EditorGUILayout.HelpBox(UiStrings.T("opt.skippedUnsupported",
-                    generation.SkippedCount.ToString(CultureInfo.InvariantCulture)), MessageType.Warning);
-            }
-
-            if (!string.IsNullOrEmpty(generation.OutputFolder))
-            {
-                EditorGUILayout.BeginHorizontal();
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.outputFolder"));
-                EditorGUILayout.LabelField(generation.OutputFolder);
-                EditorGUILayout.EndHorizontal();
-            }
-
-            if (GUILayout.Button(UiStrings.T("ui.button.openOutputFolder")))
-            {
                 EditorUtility.RevealInFinder(GeneratedAssetStore.GeneratedRoot);
-            }
-        }
-
-        // ===================================================================== tab: tracking
-
-        private void DrawTracking()
-        {
-            Section("ui.section.changeTracking");
-            EditorGUILayout.HelpBox(UiStrings.T("tip.changeTracking"), MessageType.None);
-
-            if (_controller.ChangeStatus == null)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.tableEmpty"));
-                return;
-            }
-
-            var status = _controller.ChangeStatus;
-            DrawStatusLine();
-
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.changedFiles") + ": " +
-                                       status.Changes.Count.ToString(CultureInfo.InvariantCulture));
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.staleOutputs") + ": " +
-                                       status.StaleGeneratedPaths.Count.ToString(CultureInfo.InvariantCulture));
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.validOutputs") + ": " +
-                                       status.ValidGeneratedPaths.Count.ToString(CultureInfo.InvariantCulture));
-
-            for (var i = 0; i < status.Changes.Count; i++)
-            {
-                var change = status.Changes[i];
-                EditorGUILayout.HelpBox(
-                    UiStrings.T(change.DetailKey, change.Args.ToArray()),
-                    change.InvalidatesEverything ? MessageType.Warning : MessageType.None);
-            }
-
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(UiStrings.T("ui.button.viewManifest")))
-            {
-                var manifest = AssetDatabase.LoadAssetAtPath<TextAsset>(GeneratedAssetStore.ManifestPath);
-                if (manifest != null)
-                {
-                    AssetDatabase.OpenAsset(manifest);
-                }
-                else
-                {
-                    EditorUtility.RevealInFinder(GeneratedAssetStore.GeneratedRoot);
-                }
-            }
-
-            if (GUILayout.Button(UiStrings.T("ui.button.openOutputFolder")))
-            {
-                EditorUtility.RevealInFinder(GeneratedAssetStore.GeneratedRoot);
-            }
-
-            EditorGUILayout.EndHorizontal();
-
-            if (_controller.RecordedState != null && !string.IsNullOrEmpty(_controller.RecordedState.LastSuccessUtc))
-            {
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.lastOptimized"),
-                    _controller.RecordedState.LastSuccessUtc);
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.toolVersion"),
-                    _controller.RecordedState.ToolVersionAtOptimization);
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.engineVersion"),
-                    _controller.RecordedState.EngineVersionAtOptimization);
-            }
-        }
-
-        // ===================================================================== tab: materials
-
-        private void DrawMaterials()
-        {
-            var report = _controller.Report;
-            if (report == null)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.tableEmpty"));
-                return;
-            }
-
-            Section("ui.tab.materials");
-
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.materials"), EditorStyles.boldLabel);
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.sourceAsset"), EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.shader"), EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.textures"), EditorStyles.boldLabel, GUILayout.Width(70));
-            EditorGUILayout.EndHorizontal();
-
-            for (var i = 0; i < report.Materials.Count; i++)
-            {
-                var material = report.Materials[i];
-                EditorGUILayout.BeginHorizontal();
-                EditorGUILayout.LabelField(material.Name ?? material.Guid);
-                EditorGUILayout.LabelField(string.IsNullOrEmpty(material.ShaderName)
-                    ? UiStrings.T("ui.label.unknown")
-                    : material.ShaderName + (material.ShaderIsCustom ? " (*)" : string.Empty));
-                EditorGUILayout.LabelField(
-                    material.TextureBindings.Count.ToString(CultureInfo.InvariantCulture), GUILayout.Width(70));
-                EditorGUILayout.EndHorizontal();
-            }
-
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.meshes"), EditorStyles.boldLabel);
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.sourceAsset"), EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.triangles"), EditorStyles.boldLabel, GUILayout.Width(80));
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.bones"), EditorStyles.boldLabel, GUILayout.Width(60));
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.blendShapes"), EditorStyles.boldLabel, GUILayout.Width(80));
-            EditorGUILayout.EndHorizontal();
-
-            for (var i = 0; i < report.Renderers.Count; i++)
-            {
-                var renderer = report.Renderers[i];
-                EditorGUILayout.BeginHorizontal();
-                EditorGUILayout.LabelField(renderer.Path);
-                EditorGUILayout.LabelField(renderer.TriangleCount.ToString(CultureInfo.InvariantCulture), GUILayout.Width(80));
-                EditorGUILayout.LabelField(renderer.BoneCount.ToString(CultureInfo.InvariantCulture), GUILayout.Width(60));
-                EditorGUILayout.LabelField(renderer.BlendShapeCount.ToString(CultureInfo.InvariantCulture), GUILayout.Width(80));
-                EditorGUILayout.EndHorizontal();
-            }
-        }
-
-        // ===================================================================== tab: settings
-
-        private void DrawSettings()
-        {
-            EditorGUI.BeginDisabledGroup(!WindowFlow.CanEditSettings(_controller.State));
-
-            Section("ui.section.quality");
-            EditorGUILayout.LabelField(
-                new GUIContent(UiStrings.T("ui.label.preset"), UiStrings.T("tip.presetField")));
-            var preset = (OptimizationPreset)EditorGUILayout.EnumPopup(_controller.Preset);
-            if (preset != _controller.Preset)
-            {
-                _controller.Preset = preset;
-                _controller.RebuildPlan();
-            }
-
-            EditorGUILayout.HelpBox(UiStrings.T(PresetDescriptionKey(preset)), MessageType.None);
-
-            Section("ui.section.exclusions");
-            EditorGUILayout.HelpBox(UiStrings.T("tip.exclusionList"), MessageType.None);
-            var excluded = 0;
-            if (_controller.Plan != null)
-            {
-                for (var i = 0; i < _controller.Plan.Textures.Count; i++)
-                {
-                    if (_controller.Plan.Textures[i].Plan != null &&
-                        _controller.Plan.Textures[i].Plan.IsExcluded)
-                    {
-                        excluded++;
-                    }
-                }
-            }
-
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.excluded") + ": " +
-                                       excluded.ToString(CultureInfo.InvariantCulture));
-
-            Section("ui.section.overrides");
-            DrawOverrideControls();
-
-            EditorGUI.EndDisabledGroup();
-
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(UiStrings.T("ui.button.revertOverrides")))
-            {
-                _controller.ClearOverrides();
-            }
-
-            if (GUILayout.Button(UiStrings.T("ui.button.clearExclusions")))
-            {
-                ClearExclusions();
-            }
-
-            if (GUILayout.Button(UiStrings.T("ui.button.selectAll")))
-            {
-                SetAllIncluded(true);
-            }
-
-            if (GUILayout.Button(UiStrings.T("ui.button.selectNone")))
-            {
-                SetAllIncluded(false);
-            }
-
-            EditorGUILayout.EndHorizontal();
-        }
-
-        private void DrawOverrideControls()
-        {
-            var plan = _controller.Plan;
-            if (plan == null)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.tableEmpty"));
-                return;
-            }
-
-            var shown = 0;
-            for (var i = 0; i < plan.Textures.Count; i++)
-            {
-                var planned = plan.Textures[i];
-                if (!PassesFilter(planned.TextureName, planned.TexturePath))
-                {
-                    continue;
-                }
-
-                if (shown >= MaxTableRows)
-                {
-                    EditorGUILayout.LabelField(UiStrings.T("ui.label.moreItems",
-                        (plan.Textures.Count - shown).ToString(CultureInfo.InvariantCulture)));
-                    break;
-                }
-
-                DrawOverrideRow(planned);
-                shown++;
-            }
-        }
-
-        private void DrawOverrideRow(PlannedTexture planned)
-        {
-            var guid = planned.TextureGuid;
-            if (string.IsNullOrEmpty(guid))
-            {
-                return;
-            }
-
-            TextureOverride ovr;
-            if (!_controller.Overrides.TryGetValue(guid, out ovr))
-            {
-                ovr = null;
-            }
-
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(planned.TextureName ?? guid);
-
-            EditorGUI.BeginDisabledGroup(planned.ProtectedByThirdParty);
-
-            var keepResolution = ovr != null && ovr.KeepResolution;
-            var nextKeepResolution = EditorGUILayout.ToggleLeft(
-                UiStrings.T("ui.label.resolution"), keepResolution, GUILayout.Width(90));
-            var keepFormat = ovr != null && ovr.KeepFormat;
-            var nextKeepFormat = EditorGUILayout.ToggleLeft(
-                UiStrings.T("ui.label.format"), keepFormat, GUILayout.Width(80));
-
-            EditorGUI.EndDisabledGroup();
-            EditorGUILayout.EndHorizontal();
-
-            if (nextKeepResolution != keepResolution || nextKeepFormat != keepFormat)
-            {
-                var updated = ovr ?? new TextureOverride();
-                updated.KeepResolution = nextKeepResolution;
-                updated.KeepFormat = nextKeepFormat;
-                _controller.SetOverride(guid, updated);
-            }
-        }
-
-        private void ClearExclusions()
-        {
-            var guids = new List<string>(_controller.Overrides.Keys);
-            for (var i = 0; i < guids.Count; i++)
-            {
-                var ovr = _controller.Overrides[guids[i]];
-                ovr.Excluded = false;
-                _controller.SetOverride(guids[i], ovr);
-            }
-        }
-
-        private void SetAllIncluded(bool included)
-        {
-            if (_controller.Report == null)
-            {
-                return;
-            }
-
-            for (var i = 0; i < _controller.Report.Textures.Count; i++)
-            {
-                var guid = _controller.Report.Textures[i].Guid;
-                if (string.IsNullOrEmpty(guid))
-                {
-                    continue;
-                }
-
-                TextureOverride ovr;
-                if (!_controller.Overrides.TryGetValue(guid, out ovr))
-                {
-                    ovr = new TextureOverride();
-                }
-
-                ovr.Excluded = !included;
-                _controller.SetOverride(guid, ovr);
-            }
-        }
-
-        // ===================================================================== tab: preferences
-
-        private void DrawPreferences()
-        {
-            EditorGUI.BeginDisabledGroup(!WindowFlow.CanEditSettings(_controller.State));
-
-            Section("ui.section.preferences");
-
-            var includeInactive = EditorGUILayout.Toggle(
-                new GUIContent(UiStrings.T("ui.toggle.includeInactive"), UiStrings.T("tip.includeInactive")),
-                _controller.IncludeInactive);
-            if (includeInactive != _controller.IncludeInactive)
-            {
-                _controller.IncludeInactive = includeInactive;
-                if (_controller.Report != null)
-                {
-                    _controller.Analyze();
-                }
-            }
-
-            _controller.MeasureQuality = EditorGUILayout.Toggle(
-                new GUIContent(UiStrings.T("ui.toggle.measureQuality"), UiStrings.T("tip.measureQuality")),
-                _controller.MeasureQuality);
-
-            _controller.OverwriteGenerated = EditorGUILayout.Toggle(
-                new GUIContent(UiStrings.T("ui.toggle.overwriteGenerated")),
-                _controller.OverwriteGenerated);
-
-            EditorGUILayout.HelpBox(UiStrings.T("tip.qualityEstimate"), MessageType.None);
-            EditorGUILayout.HelpBox(UiStrings.T("tip.qualityMeasure"), MessageType.None);
-
-            EditorGUI.EndDisabledGroup();
-
-            Section("ui.section.output");
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(UiStrings.T("ui.label.outputFolder"));
-            EditorGUILayout.LabelField(GeneratedAssetStore.GeneratedRoot);
-            EditorGUILayout.EndHorizontal();
-            EditorGUILayout.HelpBox(UiStrings.T("tip.outputFolder"), MessageType.None);
-
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(UiStrings.T("ui.button.openOutputFolder")))
-            {
-                EditorUtility.RevealInFinder(GeneratedAssetStore.GeneratedRoot);
-            }
-
-            if (GUILayout.Button(UiStrings.T("ui.button.exportReport")))
-            {
-                ExportReport();
-            }
-
-            if (GUILayout.Button(UiStrings.T("ui.button.copy")))
-            {
-                CopySummary();
-            }
-
-            EditorGUILayout.EndHorizontal();
-
-            Section("ui.section.advanced");
-            _showAdvanced = EditorGUILayout.Foldout(_showAdvanced, UiStrings.T("ui.section.advanced"));
-            if (_showAdvanced)
-            {
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.toolVersion"), GeneratedAssetStore.ToolVersion);
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.engineVersion"), Application.unityVersion);
-                EditorGUILayout.LabelField(UiStrings.T("ui.label.dependencies"),
-                    _controller.Report != null
-                        ? _controller.Report.PossibleBuildTimeDependencies.Count.ToString(CultureInfo.InvariantCulture)
-                        : UiStrings.T("ui.label.notAvailable"));
             }
         }
 
@@ -1355,6 +1786,15 @@ namespace AvatarTuner.Editor.UI
                 _controller.ErrorArgs.Clear();
                 _controller.ErrorArgs.Add(ex.Message);
             }
+
+            RefreshView();
+        }
+
+        private void CopySummary()
+        {
+            EditorGUIUtility.systemCopyBuffer = BuildReportText();
+            ShowNotice("opt.done");
+            RefreshView();
         }
 
         private string BuildReportText()
@@ -1404,31 +1844,352 @@ namespace AvatarTuner.Editor.UI
             return builder.ToString();
         }
 
-        private void CopySummary()
-        {
-            EditorGUIUtility.systemCopyBuffer = BuildReportText();
-            ShowNotice("opt.done");
-        }
-
         // ===================================================================== shared helpers
 
-        private void Section(string titleKey)
+        private void ShowNotice(string key, params string[] args)
         {
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField(UiStrings.T(titleKey), EditorStyles.boldLabel);
+            _noticeKey = key;
+            _noticeArgs.Clear();
+            if (args != null)
+            {
+                _noticeArgs.AddRange(args);
+            }
         }
 
-        private bool PassesFilter(string name, string path)
+        private void ClearNotice()
         {
-            if (string.IsNullOrEmpty(_filter))
+            _noticeKey = null;
+            _noticeArgs.Clear();
+        }
+
+        private void ClearExclusions()
+        {
+            var guids = new List<string>(_controller.Overrides.Keys);
+            for (var i = 0; i < guids.Count; i++)
             {
-                return true;
+                var ovr = _controller.Overrides[guids[i]];
+                ovr.Excluded = false;
+                _controller.SetOverride(guids[i], ovr);
+            }
+        }
+
+        private void SetAllIncluded(bool included)
+        {
+            if (_controller.Report == null)
+            {
+                return;
             }
 
-            return (!string.IsNullOrEmpty(name) &&
-                    name.IndexOf(_filter, StringComparison.OrdinalIgnoreCase) >= 0) ||
-                   (!string.IsNullOrEmpty(path) &&
-                    path.IndexOf(_filter, StringComparison.OrdinalIgnoreCase) >= 0);
+            for (var i = 0; i < _controller.Report.Textures.Count; i++)
+            {
+                var guid = _controller.Report.Textures[i].Guid;
+                if (string.IsNullOrEmpty(guid))
+                {
+                    continue;
+                }
+
+                TextureOverride ovr;
+                if (!_controller.Overrides.TryGetValue(guid, out ovr))
+                {
+                    ovr = new TextureOverride();
+                }
+
+                ovr.Excluded = !included;
+                _controller.SetOverride(guid, ovr);
+            }
+        }
+
+        /// <summary>Locates a hierarchy path or asset path and highlights it in the editor.</summary>
+        private void PingPath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return;
+            }
+
+            try
+            {
+                if (path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
+                    path.StartsWith("Packages/", StringComparison.OrdinalIgnoreCase))
+                {
+                    var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
+                    if (asset != null)
+                    {
+                        Selection.activeObject = asset;
+                        EditorGUIUtility.PingObject(asset);
+                        return;
+                    }
+                }
+
+                if (_controller.Avatar == null)
+                {
+                    return;
+                }
+
+                var target = FindByHierarchyPath(_controller.Avatar.transform, path);
+                if (target != null)
+                {
+                    Selection.activeObject = target.gameObject;
+                    EditorGUIUtility.PingObject(target.gameObject);
+                }
+            }
+            catch (Exception)
+            {
+                // Pinging is a convenience; a failure must never disturb the workflow.
+            }
+        }
+
+        private static Transform FindByHierarchyPath(Transform root, string path)
+        {
+            if (root == null || string.IsNullOrEmpty(path))
+            {
+                return null;
+            }
+
+            var segments = path.Split('/');
+            var current = root;
+            var start = 0;
+            if (segments.Length > 0 && segments[0] == root.name)
+            {
+                start = 1;
+            }
+
+            for (var i = start; i < segments.Length; i++)
+            {
+                Transform next = null;
+                for (var c = 0; c < current.childCount; c++)
+                {
+                    var child = current.GetChild(c);
+                    if (child.name == segments[i])
+                    {
+                        next = child;
+                        break;
+                    }
+                }
+
+                if (next == null)
+                {
+                    return null;
+                }
+
+                current = next;
+            }
+
+            return current;
+        }
+
+        // ===================================================================== element factories
+
+        private static VisualElement Spacer()
+        {
+            var spacer = new VisualElement();
+            spacer.AddToClassList("at-grow");
+            return spacer;
+        }
+
+        private static VisualElement Dot(Color color)
+        {
+            var dot = new VisualElement();
+            dot.AddToClassList("at-dot");
+            dot.style.backgroundColor = color;
+            return dot;
+        }
+
+        private static VisualElement Card(string titleKey)
+        {
+            var card = new VisualElement();
+            card.AddToClassList("at-card");
+            card.style.backgroundColor = UiTheme.CardBackground;
+            card.style.borderLeftColor = UiTheme.CardBorder;
+            card.style.borderRightColor = UiTheme.CardBorder;
+            card.style.borderTopColor = UiTheme.CardBorder;
+            card.style.borderBottomColor = UiTheme.CardBorder;
+
+            if (!string.IsNullOrEmpty(titleKey))
+            {
+                var title = new Label(UiStrings.T(titleKey));
+                title.AddToClassList("at-card-title");
+                card.Add(title);
+            }
+
+            return card;
+        }
+
+        private static VisualElement Chip(string text, SemanticTone tone)
+        {
+            var chip = new Label(text);
+            chip.AddToClassList("at-chip");
+            chip.style.backgroundColor = UiTheme.ChipBackground;
+            chip.style.color = UiTheme.ForTone(tone);
+            return chip;
+        }
+
+        private static Label Line(string text)
+        {
+            var label = new Label(text);
+            label.AddToClassList("at-text");
+            return label;
+        }
+
+        private static VisualElement Cell(string widthClass, string text, Color color)
+        {
+            var label = new Label(text);
+            label.AddToClassList(widthClass);
+            label.AddToClassList("at-text");
+            label.style.color = color;
+            return label;
+        }
+
+        private static Label HeaderCell(string widthClass, string text)
+        {
+            var label = new Label(text);
+            label.AddToClassList(widthClass);
+            label.AddToClassList("at-table-header");
+            label.style.color = UiTheme.TextSecondary;
+            return label;
+        }
+
+        private static VisualElement HeaderRow((string widthClass, string text)[] columns)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("at-row");
+            for (var i = 0; i < columns.Length; i++)
+            {
+                row.Add(HeaderCell(columns[i].widthClass, columns[i].text));
+            }
+
+            return row;
+        }
+
+        private static VisualElement StatusCell(string widthClass, TextureRowStatus status)
+        {
+            var holder = new VisualElement();
+            holder.AddToClassList(widthClass);
+            holder.AddToClassList("at-row");
+            holder.Add(Dot(UiTheme.ForTone(TextureRowModel.StatusTone(status))));
+            var label = new Label(UiStrings.T(TextureRowModel.StatusLabelKey(status)));
+            label.AddToClassList("at-text-secondary");
+            label.style.color = UiTheme.ForTone(TextureRowModel.StatusTone(status));
+            holder.Add(label);
+            return holder;
+        }
+
+        private static VisualElement RiskCell(string widthClass, CompatRisk risk)
+        {
+            var holder = new VisualElement();
+            holder.AddToClassList(widthClass);
+            holder.AddToClassList("at-row");
+            holder.Add(Dot(UiTheme.ForRisk(risk)));
+            var label = new Label(UiStrings.T(RiskKey(risk)));
+            label.AddToClassList("at-text-secondary");
+            label.style.color = UiTheme.ForRisk(risk);
+            holder.Add(label);
+            return holder;
+        }
+
+        private VisualElement IncludeCell(TextureRowModel model)
+        {
+            var holder = new VisualElement();
+            holder.AddToClassList("at-col-w60");
+
+            var included = !model.IsExcluded && !model.IsProtected;
+            var toggle = new Toggle(string.Empty);
+            toggle.value = included;
+            toggle.SetEnabled(!model.IsProtected && WindowFlow.CanEditSettings(_controller.State));
+            if (model.IsProtected)
+            {
+                toggle.tooltip = UiStrings.T("plan.note.protectedThirdParty");
+            }
+            else
+            {
+                toggle.tooltip = UiStrings.T("ui.label.include");
+            }
+
+            var guid = model.Guid;
+            toggle.RegisterValueChangedCallback(evt =>
+            {
+                if (string.IsNullOrEmpty(guid))
+                {
+                    return;
+                }
+
+                TextureOverride ovr;
+                if (!_controller.Overrides.TryGetValue(guid, out ovr))
+                {
+                    ovr = new TextureOverride();
+                }
+
+                ovr.Excluded = !evt.newValue;
+                _controller.SetOverride(guid, ovr);
+                RefreshView();
+            });
+            holder.Add(toggle);
+            return holder;
+        }
+
+        private static VisualElement DetailRow(string labelKey, string value)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("at-row");
+            var label = new Label(UiStrings.T(labelKey));
+            label.AddToClassList("at-text-secondary");
+            label.style.color = UiTheme.TextSecondary;
+            label.style.minWidth = 110;
+            row.Add(label);
+            var valueLabel = new Label(value ?? string.Empty);
+            valueLabel.AddToClassList("at-text");
+            valueLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
+            row.Add(valueLabel);
+            return row;
+        }
+
+        private static VisualElement BigValue(string labelKey, string value, Color valueColor)
+        {
+            var holder = new VisualElement();
+            holder.AddToClassList("at-col");
+            holder.style.marginRight = 18;
+            var label = new Label(labelKey);
+            label.AddToClassList("at-metric-label");
+            label.style.color = UiTheme.TextSecondary;
+            holder.Add(label);
+            if (!string.IsNullOrEmpty(value))
+            {
+                var valueLabel = new Label(value);
+                valueLabel.AddToClassList("at-metric-value-sm");
+                valueLabel.style.color = valueColor;
+                holder.Add(valueLabel);
+            }
+
+            return holder;
+        }
+
+        private static VisualElement Message(string text, Color tone)
+        {
+            var card = new VisualElement();
+            card.AddToClassList("at-row-card");
+            card.style.backgroundColor = UiTheme.CardHeaderBackground;
+            card.style.borderLeftColor = tone;
+            card.style.borderRightColor = UiTheme.CardBorder;
+            card.style.borderTopColor = UiTheme.CardBorder;
+            card.style.borderBottomColor = UiTheme.CardBorder;
+            card.style.borderLeftWidth = 3;
+
+            var row = new VisualElement();
+            row.AddToClassList("at-insight");
+            row.Add(Dot(tone));
+            var label = new Label(text);
+            label.AddToClassList("at-text");
+            row.Add(label);
+            card.Add(row);
+            return card;
+        }
+
+        private static VisualElement EmptyState()
+        {
+            var card = Card(null);
+            card.Add(Message(UiStrings.T("ui.state.noSelection.title"), UiTheme.Info));
+            card.Add(Line(UiStrings.T("ui.state.empty.body")));
+            return card;
         }
 
         private static string RiskKey(CompatRisk risk)
@@ -1441,6 +2202,26 @@ namespace AvatarTuner.Editor.UI
             }
         }
 
+        private static SemanticTone SemanticToneForRisk(CompatRisk risk)
+        {
+            switch (risk)
+            {
+                case CompatRisk.High: return SemanticTone.Error;
+                case CompatRisk.Medium: return SemanticTone.Warning;
+                default: return SemanticTone.Success;
+            }
+        }
+
+        private static string PresetNameKey(OptimizationPreset preset)
+        {
+            switch (preset)
+            {
+                case OptimizationPreset.QualityFirst: return "preset.quality-first.name";
+                case OptimizationPreset.SizeFirst: return "preset.size-first.name";
+                default: return "preset.balanced.name";
+            }
+        }
+
         private static string PresetDescriptionKey(OptimizationPreset preset)
         {
             switch (preset)
@@ -1449,70 +2230,6 @@ namespace AvatarTuner.Editor.UI
                 case OptimizationPreset.SizeFirst: return "preset.size-first.description";
                 default: return "preset.balanced.description";
             }
-        }
-
-        private static string StatusNameKey(OptimizationStatus status)
-        {
-            switch (status)
-            {
-                case OptimizationStatus.Optimized: return "status.optimized.name";
-                case OptimizationStatus.ChangesDetected: return "status.changesDetected.name";
-                case OptimizationStatus.ReoptimizationRequired: return "status.reoptimizationRequired.name";
-                case OptimizationStatus.OptimizationFailed: return "status.optimizationFailed.name";
-                case OptimizationStatus.Unsupported: return "status.unsupported.name";
-                default: return "status.notOptimized.name";
-            }
-        }
-
-        private static string StatusSummaryKey(OptimizationStatus status)
-        {
-            switch (status)
-            {
-                case OptimizationStatus.Optimized: return "status.optimized.summary";
-                case OptimizationStatus.ChangesDetected: return "status.changesDetected.summary";
-                case OptimizationStatus.ReoptimizationRequired: return "status.reoptimizationRequired.summary";
-                case OptimizationStatus.OptimizationFailed: return "status.optimizationFailed.summary";
-                case OptimizationStatus.Unsupported: return "status.unsupported.summary";
-                default: return "status.notOptimized.summary";
-            }
-        }
-
-        private static int CountUniqueMeshes(AvatarAnalysisReport report)
-        {
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            for (var i = 0; i < report.Renderers.Count; i++)
-            {
-                if (!string.IsNullOrEmpty(report.Renderers[i].MeshGuid))
-                {
-                    seen.Add(report.Renderers[i].MeshGuid);
-                }
-            }
-
-            return seen.Count;
-        }
-
-        private static int CountClips(AvatarAnalysisReport report)
-        {
-            var total = 0;
-            for (var i = 0; i < report.Animators.Count; i++)
-            {
-                total += report.Animators[i].ClipCount;
-            }
-
-            return total;
-        }
-
-        private static int FirstBoneCount(AvatarAnalysisReport report)
-        {
-            for (var i = 0; i < report.Renderers.Count; i++)
-            {
-                if (report.Renderers[i].IsSkinned)
-                {
-                    return report.Renderers[i].BoneCount;
-                }
-            }
-
-            return 0;
         }
     }
 }
