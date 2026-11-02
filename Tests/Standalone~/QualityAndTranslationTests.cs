@@ -350,6 +350,49 @@ namespace AvatarTuner.StandaloneTests
             Assert.IsFalse(TextureFormatInfo.TryParse("nonsense-format", out alias), "unknown names are rejected");
         }
 
+        [Test("Unity format spellings from every Texture subclass parse safely")]
+        public static void UnityFormatSpellingsParseSafely()
+        {
+            // Regression for the first real Unity compile: Texture2D.format reports
+            // TextureFormat names while every other Texture subclass reports GraphicsFormat
+            // names through Texture.graphicsFormat. Both shapes must land in the parser.
+            TunerTextureFormat parsed;
+
+            Assert.IsTrue(TextureFormatInfo.TryParse("DXT1Crunched", out parsed), "TextureFormat DXT1Crunched parses");
+            Assert.AreEqual(TunerTextureFormat.BC1, parsed, "crunched DXT1 is still BC1 in VRAM");
+            Assert.IsTrue(TextureFormatInfo.TryParse("DXT5Crunched", out parsed), "TextureFormat DXT5Crunched parses");
+            Assert.AreEqual(TunerTextureFormat.BC3, parsed, "crunched DXT5 is still BC3 in VRAM");
+            Assert.IsTrue(TextureFormatInfo.TryParse("BC7", out parsed), "TextureFormat BC7 parses");
+            Assert.AreEqual(TunerTextureFormat.BC7, parsed, "BC7 stays BC7");
+            Assert.IsTrue(TextureFormatInfo.TryParse("RGBA32", out parsed), "TextureFormat RGBA32 parses");
+            Assert.AreEqual(TunerTextureFormat.RGBA32, parsed, "RGBA32 stays RGBA32");
+
+            Assert.AreEqual(TunerTextureFormat.BC1, Parse("BC1_UNORM"), "GraphicsFormat BC1_UNORM is BC1");
+            Assert.AreEqual(TunerTextureFormat.BC1, Parse("BC1_UNORM_SRGB"), "GraphicsFormat BC1_UNORM_SRGB is BC1");
+            Assert.AreEqual(TunerTextureFormat.BC3, Parse("BC3_UNORM"), "GraphicsFormat BC3_UNORM is BC3");
+            Assert.AreEqual(TunerTextureFormat.BC4, Parse("BC4_UNORM"), "GraphicsFormat BC4_UNORM is BC4");
+            Assert.AreEqual(TunerTextureFormat.BC5, Parse("BC5_UNORM"), "GraphicsFormat BC5_UNORM is BC5");
+            Assert.AreEqual(TunerTextureFormat.BC6H, Parse("BC6H_UF16"), "GraphicsFormat BC6H_UF16 is BC6H");
+            Assert.AreEqual(TunerTextureFormat.BC6H, Parse("BC6H_SF16"), "GraphicsFormat BC6H_SF16 is BC6H");
+            Assert.AreEqual(TunerTextureFormat.BC7, Parse("BC7_UNORM"), "GraphicsFormat BC7_UNORM is BC7");
+            Assert.AreEqual(TunerTextureFormat.BC7, Parse("BC7_UNORM_SRGB"), "GraphicsFormat BC7_UNORM_SRGB is BC7");
+
+            // Names whose block layout is not unambiguous stay Unknown so VRAM arithmetic
+            // is never based on a guess.
+            Assert.IsFalse(TextureFormatInfo.TryParse("R8G8B8A8_SRGB", out parsed),
+                "an uncompressed GraphicsFormat name is refused instead of guessed");
+            Assert.IsFalse(TextureFormatInfo.TryParse("R16G16B16A16_SFLOAT", out parsed),
+                "an HDR GraphicsFormat name is refused instead of guessed");
+            Assert.AreEqual(TunerTextureFormat.Unknown, parsed, "a refused name yields Unknown");
+        }
+
+        private static TunerTextureFormat Parse(string name)
+        {
+            TunerTextureFormat parsed;
+            Assert.IsTrue(TextureFormatInfo.TryParse(name, out parsed), name + " parses");
+            return parsed;
+        }
+
         [Test("alpha capability matches the format specifications")]
         public static void AlphaCapabilityMatchesSpec()
         {

@@ -339,7 +339,7 @@ namespace AvatarTuner.Editor.Analysis
             // Start with what the live texture reports; the importer refines it below.
             entry.Width = texture.width;
             entry.Height = texture.height;
-            entry.CurrentFormatName = texture.format.ToString();
+            entry.CurrentFormatName = CurrentFormatName(texture);
             entry.CurrentFormatKnown = TextureFormatInfo.TryParse(entry.CurrentFormatName, out _);
 
             var importer = AssetImporter.GetAtPath(entry.Path) as TextureImporter;
@@ -348,12 +348,23 @@ namespace AvatarTuner.Editor.Analysis
                 return;
             }
 
-            int sourceWidth;
-            int sourceHeight;
-            if (importer.GetSourceTextureWidthAndHeight(out sourceWidth, out sourceHeight))
+            try
             {
-                entry.Width = sourceWidth;
-                entry.Height = sourceHeight;
+                // Unity reports source dimensions only once the import has finished and
+                // throws otherwise; a texture still importing must not abort the scan.
+                // The method returns void in 2022.3, so success is judged by the values.
+                int sourceWidth;
+                int sourceHeight;
+                importer.GetSourceTextureWidthAndHeight(out sourceWidth, out sourceHeight);
+                if (sourceWidth > 0 && sourceHeight > 0)
+                {
+                    entry.Width = sourceWidth;
+                    entry.Height = sourceHeight;
+                }
+            }
+            catch (Exception)
+            {
+                // The live texture dimensions captured above stand in.
             }
 
             entry.HasAlphaChannel = importer.DoesSourceTextureHaveAlpha();
@@ -375,6 +386,25 @@ namespace AvatarTuner.Editor.Analysis
             {
                 // Unreadable source file: keep 0 and carry on. Analysis must not fail on IO.
             }
+        }
+
+        /// <summary>
+        /// The best available format name for any Texture subclass. Only Texture2D exposes
+        /// a TextureFormat; every other subclass (Cubemap, Texture3D, RenderTexture, ...)
+        /// reports its GraphicsFormat instead. An unrecognized name is fine: the planner
+        /// treats an unknown current format as unknown and says so rather than guessing.
+        /// </summary>
+        private static string CurrentFormatName(Texture texture)
+        {
+            if (texture == null)
+            {
+                return string.Empty;
+            }
+
+            var texture2D = texture as Texture2D;
+            return texture2D != null
+                ? texture2D.format.ToString()
+                : texture.graphicsFormat.ToString();
         }
 
         // ===================================================================== usage classification
@@ -484,21 +514,24 @@ namespace AvatarTuner.Editor.Analysis
             var overrideController = controller as AnimatorOverrideController;
             if (overrideController != null)
             {
-                var pairs = overrideController.clips;
-                for (var i = 0; i < pairs.Length; i++)
+                // AnimatorOverrideController.clips is obsolete in 2022.3; GetOverrides
+                // reports the same pairs (original clip in Key, override in Value).
+                var pairs = new List<KeyValuePair<AnimationClip, AnimationClip>>(overrideController.overridesCount);
+                overrideController.GetOverrides(pairs);
+                for (var i = 0; i < pairs.Count; i++)
                 {
-                    if (pairs[i].originalClip != null)
+                    if (pairs[i].Key != null)
                     {
-                        CollectClipData(pairs[i].originalClip, entry, report);
+                        CollectClipData(pairs[i].Key, entry, report);
                     }
 
-                    if (pairs[i].overrideClip != null)
+                    if (pairs[i].Value != null)
                     {
-                        CollectClipData(pairs[i].overrideClip, entry, report);
+                        CollectClipData(pairs[i].Value, entry, report);
                     }
                 }
 
-                entry.ClipCount += pairs.Length;
+                entry.ClipCount += pairs.Count;
                 return;
             }
 

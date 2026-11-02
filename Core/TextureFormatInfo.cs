@@ -252,8 +252,11 @@ namespace AvatarTuner.Core
         }
 
         /// <summary>
-        /// Parses a format name, accepting either the enum name or the display name. Used to
-        /// read per-texture overrides out of persisted configuration.
+        /// Parses a format name, accepting the enum name, the display name, and Unity's own
+        /// spellings from both worlds: <c>TextureFormat</c> names (what Texture2D.format
+        /// reports) and <c>GraphicsFormat</c> names (what Texture.graphicsFormat reports
+        /// for every other Texture subclass). Used to read per-texture overrides out of
+        /// persisted configuration and to understand scanner observations.
         /// </summary>
         public static bool TryParse(string text, out TunerTextureFormat format)
         {
@@ -280,21 +283,38 @@ namespace AvatarTuner.Core
                 }
             }
 
-            // Accept Unity's DXT aliases.
+            // Only unambiguous block-format aliases are accepted here: the parsed format
+            // feeds VRAM arithmetic, so an alias whose block size could differ is refused
+            // (Unknown) instead of guessed at.
             switch (trimmed.ToUpperInvariant())
             {
                 case "DXT1":
+                case "DXT1CRUNCHED":
+                case "BC1_UNORM":
+                case "BC1_UNORM_SRGB":
                     format = TunerTextureFormat.BC1;
                     return true;
                 case "DXT5":
+                case "DXT5CRUNCHED":
+                case "DXT5_CRUNCH":
+                case "BC3_UNORM":
+                case "BC3_UNORM_SRGB":
                     format = TunerTextureFormat.BC3;
+                    return true;
+                case "BC4_UNORM":
+                    format = TunerTextureFormat.BC4;
+                    return true;
+                case "BC5_UNORM":
+                    format = TunerTextureFormat.BC5;
+                    return true;
+                case "BC6H_UF16":
+                case "BC6H_SF16":
+                    format = TunerTextureFormat.BC6H;
                     return true;
                 case "BC7_SRGB":
                 case "BC7_UNORM":
+                case "BC7_UNORM_SRGB":
                     format = TunerTextureFormat.BC7;
-                    return true;
-                case "DXT5_CRUNCH":
-                    format = TunerTextureFormat.BC3;
                     return true;
                 default:
                     return false;

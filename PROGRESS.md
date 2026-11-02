@@ -112,13 +112,45 @@ cd Tests/Standalone~
 dotnet run --project AvatarTuner.StandaloneTests.csproj
 ```
 
-Last result: **189 passed, 0 failed, 0 skipped** (148 inherited + 15 CompatibilityTests +
-15 PlanBuilderTests + 11 TrackingTests).
+Last result: **190 passed, 0 failed, 0 skipped** (148 inherited + 15 CompatibilityTests +
+15 PlanBuilderTests + 11 TrackingTests + 1 Unity-format-spelling regression test).
 
-Editor glue (CompatibilityScanner, TextureOptimizer, GeneratedAssetStore,
-ChangeTrackingService, UnityFingerprintProvider, AvatarAnalysisModel) is additionally
-type-checked offline against Unity API stubs (`dotnet build` in a scratch project, no Unity
-involved); this is not the same as real Unity compilation.
+The **entire** `Editor/` source tree (AvatarScanner, CompatibilityScanner, TextureOptimizer,
+GeneratedAssetStore, ChangeTrackingService, UnityFingerprintProvider, AvatarAnalysisModel,
+the plan builder and tracking policy files) is additionally type-checked offline against
+Unity 2022.3 API stubs whose signatures mirror the real API — including its quirks
+(`GetSourceTextureWidthAndHeight` returns void, `Texture` has no `format`, `Transform`
+derives from `Component`). This harness is how the round-1 Unity errors are pre-verified;
+it is not the same as real Unity compilation.
+
+## Real Unity compile round 1 (user-run, Unity 2022.3.22f1) — findings & fixes
+
+The user ran the first real manual Unity compile of the package. Unity reported three
+problems in `Editor/Analysis/AvatarScanner.cs` (nothing else in the package failed):
+
+| # | Reported | Root cause | Fix (offline, awaiting user re-test) |
+|---|----------|------------|--------------------------------------|
+| 1 | CS1061 `'Texture' does not contain a definition for 'format'` (L342) | `Texture.format` does not exist; only `Texture2D` has `TextureFormat`. Materials can bind any Texture subclass | `CurrentFormatName(Texture)` helper: `Texture2D.format` for Texture2D, `Texture.graphicsFormat` for every other subclass. Never assumes Texture2D |
+| 2 | CS0029 `Cannot implicitly convert type 'void' to 'bool'` (L353) | `TextureImporter.GetSourceTextureWidthAndHeight(out int, out int)` returns **void** in 2022.3 (and throws while an import is in flight) | Call is wrapped in try/catch; success is judged by `width > 0 && height > 0`; live texture dimensions stand in otherwise |
+| 3 | CS0618 `AnimatorOverrideController.clips` obsolete (L487) | Deprecated API | Migrated to `GetOverrides(List<KeyValuePair<AnimationClip,AnimationClip>>)` (original = Key, override = Value), pre-sized via `overridesCount` |
+
+Related sweep: every Unity API call in `Editor/` and `Core/` was searched for the same
+misuse patterns (`.format` on Texture, bool-assumed void returns, deprecated members).
+Only the three reported sites matched; the remaining `.format` uses are
+`TextureImporterPlatformSettings.format` (correct) and pure-C# strings.
+
+Pure-logic follow-up: `TextureFormatInfo.TryParse` now also accepts Unity's own spellings
+that the fixed scanner feeds it — `TextureFormat` names (`DXT1Crunched`, `DXT5Crunched`)
+and unambiguous block-format `GraphicsFormat` names (`BC1_UNORM`, `BC6H_UF16`,
+`BC7_UNORM_SRGB`, ...). Ambiguous uncompressed names are refused as Unknown so VRAM
+arithmetic is never based on a guess. Regression test: `QualityMetricTests.UnityFormatSpellingsParseSafely`.
+
+Also fixed during the round: an edit to AvatarScanner split `FillTextureImporterData`
+mid-method (caught immediately by the offline stub compile harness before any commit).
+
+**Status: fixed offline and verified by tests + the stub compile harness. NOT yet verified
+in Unity — the user will re-test manually. Do not treat round 1 as resolved until the user
+confirms a clean Unity compile.**
 
 ## Defects found and fixed by tests / review (real bugs, not test churn)
 
@@ -153,10 +185,10 @@ involved); this is not the same as real Unity compilation.
 
 ## Pending Unity-dependent verification (never run, never claimed)
 
-- Unity 2022.3 compilation of `Editor/` and `Tests/Editor/`
+- Unity 2022.3 compilation — round 1 was user-run and found 3 errors in `AvatarScanner.cs`
+  (see the round-1 section); the fixes are offline-verified only and await the user's
+  manual re-test before this line can change
 - EditMode tests execution
 - Actual texture re-import / VRAM measurement inside the editor
 - VRChat SDK 3 interaction, PhysBones/Contacts live scanning
 - UI rendering incl. Thai script shaping (system font dependent)
-- `AnimatorOverrideController.clips` is obsolete in 2022.3 (returns `AnimationClipPair[]`;
-  the scan code compiles with a warning) — migrate to `GetOverrides` when verified in Unity
