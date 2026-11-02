@@ -1,6 +1,6 @@
 # AvatarTuner v1.0.0 — Progress
 
-Status label: **Milestones 1–4 implemented & verified offline | Unity Integration Verification Pending** (target for release)
+Status label: **Milestones 1–7 implemented | Core verified by 196 offline tests | Unity round-2 compile clean | Editor UI awaiting user's manual Unity test** (target for release)
 
 Development workspace: `C:/Users/ANXE/Desktop/Coding/AvatarTuner`
 Hard rules honored: Unity is never launched, no Unity project is opened or modified,
@@ -11,12 +11,12 @@ no batch-mode compile, no VRChat SDK build. Only offline verification is claimed
 | # | Milestone | State |
 |---|-----------|-------|
 | 1 | Package structure & architecture (UPM layout, asmdefs) | DONE |
-| 2 | Core pure-C# logic layer (no UnityEngine/UnityEditor) | DONE — 189/189 offline tests pass |
+| 2 | Core pure-C# logic layer (no UnityEngine/UnityEditor) | DONE — 196/196 offline tests pass |
 | 3 | Localization en / th / zh-Hans | DONE — 311 keys × 3 languages, generated + validated |
 | 4 | Avatar scanning, dependency tracking & compatibility (Editor) | DONE — scanner + compatibility scanner + tool detection complete |
 | 5 | Texture optimization integration (Editor) | DONE — plan builder + generated texture materializer + third-party protection |
 | 6 | Generated-asset management & change-tracking integration | DONE — manifest persistence, safe cleanup, tamper detection wired to ChangeAnalyzer |
-| 7 | Unity Editor UI (window, menus, progress, errors) | pending |
+| 7 | Unity Editor UI (window, menus, progress, errors) | DONE — Tools > AvatarTuner window, all controls wired (Unity testing pending) |
 | 8 | Docs, Unity test stubs, verification report, package finalization | pending |
 
 ## What exists so far
@@ -40,6 +40,12 @@ no batch-mode compile, no VRChat SDK build. Only offline verification is claimed
   `Assets/AvatarTuner-Generated/avatartuner-manifest.json`, regeneration sync, cleanup),
   **UnityFingerprintProvider** (`AssetDatabase.GetAssetDependencyHash` + importer-settings
   hash), **ChangeTrackingService** (fresh scan + observed output hashes → `ChangeAnalyzer`)
+- `Editor/UI/` — **WindowFlow** (Unity free; window state machine + control gating, unit
+  tested), **UiStrings** (live language switching en/th/zh-Hans via `TranslationResolver`,
+  choice survives domain reloads), **AvatarTunerController** (defensive pipeline:
+  scan → plan → generate → record → status, with optional two-pass quality measurement),
+  **AvatarTunerWindow** (`[MenuItem("Tools/AvatarTuner")]`, 8 localized tabs, Hierarchy
+  drag-and-drop, all controls wired to real implementations)
 - `Editor/Localization/Translations/{en,th,zh-Hans}.json` + `Tools~/build_translations.py`
   (single source of truth; regenerating keeps all languages in lock-step)
 - `Tests/Standalone~/` — dependency-free test runner (net8.0) plus a `core-compat` project that
@@ -105,6 +111,39 @@ no batch-mode compile, no VRChat SDK build. Only offline verification is claimed
   `ChangeAnalyzer.Analyze` then provides source/importer changes, partial invalidation and
   tamper / missing-file / orphan detection with the six `OptimizationStatus` states.
 
+## Editor UI (Milestone 7, completed)
+
+The user's round-2 Unity compile was clean (0 errors) but reported that **AvatarTuner did
+not appear in Unity's Tools menu**. Root cause: no `[MenuItem]` existed anywhere in the
+package — the Editor UI milestone had not been implemented; only the
+`menu.tools.avatarTuner` localization key was present. Fixed by building the real UI:
+
+- **Menu**: `[MenuItem("Tools/AvatarTuner")]` on `AvatarTunerWindow.Open()`
+  (Unity 2022.3 IMGUI `MenuItem`, one registration, Editor-only assembly).
+- **Window** (`Editor/UI/AvatarTunerWindow.cs`): 8 localized tabs — Overview, Texture
+  Analysis, Preview Changes, Optimization Results, Change Tracking, Materials and Meshes,
+  Optimization Settings, Language and Preferences. Hierarchy drag-and-drop works through
+  both the object field and a dedicated drop zone (`ui.drop.*`). Every shown control is
+  functional: Analyze → `AvatarScanner`, Preview → `TexturePlanBuilder` output, Optimize /
+  Regenerate → `TextureOptimizer` + `GeneratedAssetStore.RecordRun`, Cleanup →
+  `RemoveAvatar`, Refresh → `ChangeTrackingService.Analyze`, Reset / Revert Overrides /
+  Clear Exclusions / Select All / None → live override editing with plan rebuild,
+  Export Report / Copy → localized text report, Open Output Folder / View Manifest →
+  real file operations. Cancellable progress (`opt.phase.*`, `opt.progress`) with the
+  `dlg.*` confirmations (optimize, overwrite, cleanup, cancel-run).
+- **Status & change tracking**: `status.*` states with summaries, `change.*` entries,
+  stale/valid outputs, recorded versions and timestamps — shown before any analysis too
+  (recorded inputs are re-fingerprinted against the current project).
+- **Localization**: all strings through `UiStrings` + Core `TranslationResolver`;
+  language switchable live (en / th / zh-Hans), persisted in `SessionState`. Every key
+  literal the UI uses is enforced to exist in all three catalogs by the source-key test.
+- **Safety**: no control runs while an operation is in flight (`WindowFlow` gates, unit
+  tested); optimization is refused when the compatibility report blocks the avatar; all
+  operations are defensive (exceptions become localized error boxes); source assets are
+  never modified. Scanner `ScanOptions.IncludeInactive` (default true, behavior preserved)
+  now backs the include-inactive preference; quality measurement estimates from readable
+  source pixels only (two-pass plan) and invents nothing.
+
 ## Test command (offline, no Unity)
 
 ```bash
@@ -112,16 +151,17 @@ cd Tests/Standalone~
 dotnet run --project AvatarTuner.StandaloneTests.csproj
 ```
 
-Last result: **190 passed, 0 failed, 0 skipped** (148 inherited + 15 CompatibilityTests +
-15 PlanBuilderTests + 11 TrackingTests + 1 Unity-format-spelling regression test).
+Last result: **196 passed, 0 failed, 0 skipped** (148 inherited + 15 CompatibilityTests +
+15 PlanBuilderTests + 11 TrackingTests + 1 Unity-format-spelling regression test +
+6 WindowFlowTests).
 
 The **entire** `Editor/` source tree (AvatarScanner, CompatibilityScanner, TextureOptimizer,
 GeneratedAssetStore, ChangeTrackingService, UnityFingerprintProvider, AvatarAnalysisModel,
-the plan builder and tracking policy files) is additionally type-checked offline against
-Unity 2022.3 API stubs whose signatures mirror the real API — including its quirks
-(`GetSourceTextureWidthAndHeight` returns void, `Texture` has no `format`, `Transform`
-derives from `Component`). This harness is how the round-1 Unity errors are pre-verified;
-it is not the same as real Unity compilation.
+UiStrings, AvatarTunerController, AvatarTunerWindow, the plan builder and tracking policy
+files) is additionally type-checked offline against Unity 2022.3 API stubs whose signatures
+mirror the real API — including its quirks (`GetSourceTextureWidthAndHeight` returns void,
+`Texture` has no `format`, `Transform` derives from `Component`). This harness is how the
+round-1 Unity errors are pre-verified; it is not the same as real Unity compilation.
 
 ## Real Unity compile round 1 (user-run, Unity 2022.3.22f1) — findings & fixes
 
@@ -148,9 +188,11 @@ arithmetic is never based on a guess. Regression test: `QualityMetricTests.Unity
 Also fixed during the round: an edit to AvatarScanner split `FillTextureImporterData`
 mid-method (caught immediately by the offline stub compile harness before any commit).
 
-**Status: fixed offline and verified by tests + the stub compile harness. NOT yet verified
-in Unity — the user will re-test manually. Do not treat round 1 as resolved until the user
-confirms a clean Unity compile.**
+**Status: CONFIRMED.** The user's round-2 manual Unity 2022.3.22f1 compile reported
+**0 compilation errors** for the whole package (plus 1 unrelated VRChat warning), so the
+three fixes above are verified in real Unity. Round 2 additionally reported that the
+Tools menu entry was missing (see the Milestone 7 section — no MenuItem had been
+implemented).
 
 ## Defects found and fixed by tests / review (real bugs, not test churn)
 
@@ -174,21 +216,24 @@ confirms a clean Unity compile.**
 
 ## Next steps (exact)
 
-1. Milestone 7: `Editor/UI/AvatarTunerWindow.cs`, menu item, progress/cancel, all states.
-   Wire the pipeline: scan → plan → generate → `GeneratedAssetStore.RecordRun`; change
-   status via `ChangeTrackingService.Analyze`; cleanup via `RemoveAvatar` / `CleanupOrphans`.
-   Compatibility section renders `CompatibilityReport` (DetectedTools with `compat.risk*`
-   badges, Notices, Warnings, Blockers); disable Optimize when `IsOptimizationAllowed` is
-   false and show `compat.manualInspection` when warnings exist.
-2. Milestone 8: README, CHANGELOG, install guide, user guide, limitations, verification report,
-   manual Unity checklist, NUnit EditMode stubs (execution pending), `.meta` files.
+1. Milestone 8: README, CHANGELOG, install guide, user guide, limitations, verification
+   report, manual Unity checklist, NUnit EditMode stubs (execution pending), `.meta` files
+   for the new `Editor/UI/` sources (generated on the user's next Unity import).
+2. Remaining UI surface (deliberately not shown because no implementation backs it yet):
+   per-texture force-format / force-max-size / force-mipmaps editors (the planner and
+   `TextureOverride` support them; the UI exposes exclusion + keep-resolution/keep-format),
+   prefab generation (`ui.toggle.generateOptimizedPrefab`), material-swap remapping
+   (`ui.toggle.remapMaterialSwaps`), and the materials/meshes/animator generation phases
+   (`opt.phase.materials` / `meshes` / `prefab` / `animator`). The Materials and Meshes tab
+   currently shows read-only analysis data.
 
 ## Pending Unity-dependent verification (never run, never claimed)
 
-- Unity 2022.3 compilation — round 1 was user-run and found 3 errors in `AvatarScanner.cs`
-  (see the round-1 section); the fixes are offline-verified only and await the user's
-  manual re-test before this line can change
+- Unity 2022.3 compilation — round 1 found 3 errors in `AvatarScanner.cs`; fixes are
+  **confirmed clean by the user's round-2 compile (0 errors)**
+- The new Editor UI: menu visibility (Tools > AvatarTuner), window rendering, Hierarchy
+  drag-and-drop feel, progress/cancel flow, dialogs, all buttons — user's manual test
+- Localization rendering in the window incl. Thai script shaping (system font dependent)
 - EditMode tests execution
 - Actual texture re-import / VRAM measurement inside the editor
 - VRChat SDK 3 interaction, PhysBones/Contacts live scanning
-- UI rendering incl. Thai script shaping (system font dependent)

@@ -44,6 +44,20 @@ namespace AvatarTuner.Editor.Tracking
             {
                 CollectSources(report, registry);
             }
+            else if (recorded != null)
+            {
+                // Without a fresh scan the recorded inputs are compared against their
+                // current fingerprints, so the status still reflects source/importer
+                // changes and generated-file tampering before any analysis runs.
+                for (var i = 0; i < recorded.Sources.Count; i++)
+                {
+                    var source = recorded.Sources[i];
+                    if (!string.IsNullOrEmpty(source.Guid))
+                    {
+                        registry.Add(source.Guid, source.Path, source.Role, "recorded");
+                    }
+                }
+            }
 
             registry.PopulateFingerprints(provider);
             snapshot.Sources.AddRange(registry.ToStates());

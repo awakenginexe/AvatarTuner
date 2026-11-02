@@ -44,6 +44,7 @@
     <Compile Include="..\..\Editor\Optimization\TextureGenerationModels.cs" />
     <Compile Include="..\..\Editor\Tracking\CleanupPlanner.cs" />
     <Compile Include="..\..\Editor\Tracking\ManifestStateBuilder.cs" />
+    <Compile Include="..\..\Editor\UI\WindowFlow.cs" />
   </ItemGroup>
 
   <ItemGroup>

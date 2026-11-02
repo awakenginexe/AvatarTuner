@@ -28,6 +28,12 @@ namespace AvatarTuner.Editor.Analysis
         /// <summary>Look outside the avatar for assets that share its textures.</summary>
         public bool DetectExternalSharing = true;
 
+        /// <summary>
+        /// Whether inactive GameObjects take part in the analysis. When false the scan
+        /// walks active objects only; inactive ones are neither counted nor modified.
+        /// </summary>
+        public bool IncludeInactive = true;
+
         /// <summary>Hard cap on how many project materials the external sharing check may open.</summary>
         public int ExternalSharingScanCap = 5000;
 
@@ -60,10 +66,10 @@ namespace AvatarTuner.Editor.Analysis
                     report.AvatarRootGuid = AssetDatabase.AssetPathToGUID(report.AvatarRootPath);
                 }
 
-                ScanRenderers(avatarRoot, report);
-                ScanAnimators(avatarRoot, report);
-                ScanDynamicComponents(avatarRoot, report);
-                ScanInactiveObjects(avatarRoot, report);
+                ScanRenderers(avatarRoot, report, options);
+                ScanAnimators(avatarRoot, report, options);
+                ScanDynamicComponents(avatarRoot, report, options);
+                ScanInactiveObjects(avatarRoot, report, options);
                 ClassifyUsages(report);
                 AnalyzeSharing(avatarRoot, report, options);
                 if (options.ComputeContentHashes)
@@ -91,9 +97,9 @@ namespace AvatarTuner.Editor.Analysis
 
         // ===================================================================== renderers
 
-        private static void ScanRenderers(GameObject root, AvatarAnalysisReport report)
+        private static void ScanRenderers(GameObject root, AvatarAnalysisReport report, ScanOptions options)
         {
-            var renderers = root.GetComponentsInChildren<Renderer>(true);
+            var renderers = root.GetComponentsInChildren<Renderer>(options.IncludeInactive);
             var materialUseCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var textureBindingCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
@@ -480,9 +486,9 @@ namespace AvatarTuner.Editor.Analysis
 
         // ===================================================================== animators
 
-        private static void ScanAnimators(GameObject root, AvatarAnalysisReport report)
+        private static void ScanAnimators(GameObject root, AvatarAnalysisReport report, ScanOptions options)
         {
-            var animators = root.GetComponentsInChildren<Animator>(true);
+            var animators = root.GetComponentsInChildren<Animator>(options.IncludeInactive);
             for (var a = 0; a < animators.Length; a++)
             {
                 var animator = animators[a];
@@ -691,9 +697,9 @@ namespace AvatarTuner.Editor.Analysis
 
         // ===================================================================== dynamics (reflection)
 
-        private static void ScanDynamicComponents(GameObject root, AvatarAnalysisReport report)
+        private static void ScanDynamicComponents(GameObject root, AvatarAnalysisReport report, ScanOptions options)
         {
-            var components = root.GetComponentsInChildren<Component>(true);
+            var components = root.GetComponentsInChildren<Component>(options.IncludeInactive);
             for (var i = 0; i < components.Length; i++)
             {
                 var component = components[i];
@@ -715,7 +721,8 @@ namespace AvatarTuner.Editor.Analysis
 
                 // The affected count is the component's transform subtree: PhysBones and
                 // Contacts act on their children, and counting transforms needs no SDK types.
-                entry.AffectedTransformCount = component.GetComponentsInChildren<Transform>(true).Length - 1;
+                entry.AffectedTransformCount =
+                    component.GetComponentsInChildren<Transform>(options.IncludeInactive).Length - 1;
 
                 report.DynamicComponents.Add(entry);
             }
@@ -771,9 +778,9 @@ namespace AvatarTuner.Editor.Analysis
 
         // ===================================================================== inactive objects
 
-        private static void ScanInactiveObjects(GameObject root, AvatarAnalysisReport report)
+        private static void ScanInactiveObjects(GameObject root, AvatarAnalysisReport report, ScanOptions options)
         {
-            var transforms = root.GetComponentsInChildren<Transform>(true);
+            var transforms = root.GetComponentsInChildren<Transform>(options.IncludeInactive);
             for (var i = 0; i < transforms.Length; i++)
             {
                 var t = transforms[i];
