@@ -11,10 +11,10 @@ no batch-mode compile, no VRChat SDK build. Only offline verification is claimed
 | # | Milestone | State |
 |---|-----------|-------|
 | 1 | Package structure & architecture (UPM layout, asmdefs) | DONE |
-| 2 | Core pure-C# logic layer (no UnityEngine/UnityEditor) | DONE — 163/163 offline tests pass |
-| 3 | Localization en / th / zh-Hans | DONE — 308 keys × 3 languages, generated + validated |
+| 2 | Core pure-C# logic layer (no UnityEngine/UnityEditor) | DONE — 178/178 offline tests pass |
+| 3 | Localization en / th / zh-Hans | DONE — 311 keys × 3 languages, generated + validated |
 | 4 | Avatar scanning, dependency tracking & compatibility (Editor) | DONE — scanner + compatibility scanner + tool detection complete |
-| 5 | Texture optimization integration (Editor) | pending |
+| 5 | Texture optimization integration (Editor) | DONE — plan builder + generated texture materializer + third-party protection |
 | 6 | Generated-asset management & change-tracking integration | pending |
 | 7 | Unity Editor UI (window, menus, progress, errors) | pending |
 | 8 | Docs, Unity test stubs, verification report, package finalization | pending |
@@ -28,6 +28,10 @@ no batch-mode compile, no VRChat SDK build. Only offline verification is claimed
   ChangeAnalyzer, ManifestModels, TranslationCatalog, **CompatibilityPolicy** (14 files)
 - `Editor/Analysis/` — AvatarAnalysisModel (report model), AvatarScanner (dependency aware
   avatar scan), **CompatibilityScanner** (third-party tool evidence → CompatibilityReport)
+- `Editor/Optimization/` — **TexturePlanBuilder** (Unity free; scan report + policy +
+  overrides → per-texture plans, with third-party protection rules), **TextureFormatMapping**
+  (Unity free; tuner format → TextureImporterFormat name table), **TextureOptimizer**
+  (materializes plans into generated texture assets; originals never touched)
 - `Editor/Localization/Translations/{en,th,zh-Hans}.json` + `Tools~/build_translations.py`
   (single source of truth; regenerating keeps all languages in lock-step)
 - `Tests/Standalone~/` — dependency-free test runner (net8.0) plus a `core-compat` project that
@@ -49,6 +53,24 @@ no batch-mode compile, no VRChat SDK build. Only offline verification is claimed
 - Message keys: `compat.*` (13), `finding.*` + `finding.kind.*` (14), `usage.reason.*` (1) —
   all present in en / th / zh-Hans and enforced by the source-scanner localization test.
 
+## Texture optimization integration (Milestone 5, completed)
+
+- `Editor/Optimization/TexturePlanBuilder.cs` — Unity free (compiled into the offline tests).
+  Translates `TextureEntry` scan data into `TexturePlanRequest`s and delegates every decision
+  to Core's `CompressionPlanner`. Enforces the protection rules: textures whose materials sit
+  in a third-party tool component's or animation-driven system's transform subtree are pinned
+  (path-boundary aware: "Arm/Prop" pins "Arm/Prop/Mesh" but never "Arm/Prop2"). Protection
+  beats user overrides and is reported via `plan.skip.protectedThirdParty` + `opt.protectedTextures`.
+- `Editor/Optimization/TextureFormatMapping.cs` — Unity free name table (BC1→DXT1, BC3→DXT5,
+  BC4/BC5/BC6H/BC7, R8/RG16/..., ETC2 aliases). Formats Unity cannot express map to null and
+  are skipped with `error.unsupportedConversion`; they are never approximated.
+- `Editor/Optimization/TextureOptimizer.cs` — materializes changed plans into
+  `Assets/AvatarTuner-Generated/<avatar>-<guid8>/Textures/` using `AssetDatabase.CopyAsset`
+  plus importer edits on the COPY only (max size, mip maps, Standalone platform format and
+  compression). Records provenance (source GUID/path, generated GUID/path, plan hash token,
+  file size) for the Milestone 6 manifest. Per-texture failures become localized findings
+  and never abort the run; cancellation keeps what was written.
+
 ## Test command (offline, no Unity)
 
 ```bash
@@ -56,11 +78,12 @@ cd Tests/Standalone~
 dotnet run --project AvatarTuner.StandaloneTests.csproj
 ```
 
-Last result: **163 passed, 0 failed, 0 skipped** (148 inherited + 15 new CompatibilityTests).
+Last result: **178 passed, 0 failed, 0 skipped** (148 inherited + 15 CompatibilityTests +
+15 PlanBuilderTests).
 
-Editor glue (`CompatibilityScanner`, `AvatarAnalysisModel`) is additionally type-checked
-offline against Unity API stubs (`dotnet build` in a scratch project, no Unity involved);
-this is not the same as real Unity compilation.
+Editor glue (CompatibilityScanner, TextureOptimizer, AvatarAnalysisModel) is additionally
+type-checked offline against Unity API stubs (`dotnet build` in a scratch project, no Unity
+involved); this is not the same as real Unity compilation.
 
 ## Defects found and fixed by tests / review (real bugs, not test churn)
 
@@ -84,16 +107,14 @@ this is not the same as real Unity compilation.
 
 ## Next steps (exact)
 
-1. Milestone 5: `Editor/Optimization/TextureOptimizer.cs` materializing `CompressionPlanner`
-   decisions into generated assets (originals untouched). Pin/exclude materials driven by
-   animation-driven systems (`CompatAssessment.AnimationDrivenSystems`) and tools' components.
-2. Milestone 6: generated-asset manifest persistence, regeneration, safe cleanup, tamper
-   detection wired to `ChangeAnalyzer`.
-3. Milestone 7: `Editor/UI/AvatarTunerWindow.cs`, menu item, progress/cancel, all states.
+1. Milestone 6: generated-asset manifest persistence (write the Milestone 5 provenance into
+   `ManifestModels` documents next to the generated assets), regeneration, safe cleanup
+   (only generated files are ever deleted), tamper detection wired to `ChangeAnalyzer`.
+2. Milestone 7: `Editor/UI/AvatarTunerWindow.cs`, menu item, progress/cancel, all states.
    Compatibility section renders `CompatibilityReport` (DetectedTools with `compat.risk*`
    badges, Notices, Warnings, Blockers); disable Optimize when `IsOptimizationAllowed` is
    false and show `compat.manualInspection` when warnings exist.
-4. Milestone 8: README, CHANGELOG, install guide, user guide, limitations, verification report,
+3. Milestone 8: README, CHANGELOG, install guide, user guide, limitations, verification report,
    manual Unity checklist, NUnit EditMode stubs (execution pending), `.meta` files.
 
 ## Pending Unity-dependent verification (never run, never claimed)

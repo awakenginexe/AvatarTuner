@@ -34,6 +34,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The Unity-free parts of the Editor sources are compiled into the test suite too, so
+      the plan builder and the report model are exercised without a Unity installation.
+    -->
+    <Compile Include="..\..\Editor\Analysis\AvatarAnalysisModel.cs" />
+    <Compile Include="..\..\Editor\Optimization\TextureFormatMapping.cs" />
+    <Compile Include="..\..\Editor\Optimization\TexturePlanBuilder.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Core is compiled separately against netstandard2.1 to prove Unity 2022.3 compatibility. -->
     <ProjectReference Include="core-compat\AvatarTuner.Core.NetStandard.csproj" />
   </ItemGroup>

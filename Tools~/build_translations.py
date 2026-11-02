@@ -121,11 +121,18 @@ ENTRIES = [
     ("plan.skip.excluded", "Excluded by the user", "ถูกยกเว้นโดยผู้ใช้", "已被用户排除"),
     ("plan.skip.invalidRequest", "Invalid texture description", "คำอธิบายเทกซ์เจอร์ไม่ถูกต้อง", "纹理描述无效"),
     ("plan.skip.wouldIncreaseSize", "Would increase memory use", "จะเพิ่มการใช้หน่วยความจำ", "会增加显存占用"),
+    ("plan.skip.protectedThirdParty", "Pinned: used by a third-party tool or animation-driven component",
+     "ถูกปักหมุด: ถูกใช้โดยเครื่องมือภายนอกหรือคอมโพเนนต์ที่ขับเคลื่อนด้วยแอนิเมชัน",
+     "已固定：被第三方工具或动画驱动组件使用"),
 
     # ---------------------------------------------------------------- plan: notes
     ("plan.note.alreadyOptimal", "Nothing to change; the current settings are already the best this plan would choose.",
      "ไม่มีอะไรต้องเปลี่ยน การตั้งค่าปัจจุบันดีที่สุดเท่าที่แผนนี้จะเลือกอยู่แล้ว",
      "无需更改，当前设置已是本计划的最优选择。"),
+    ("plan.note.protectedThirdParty",
+     "Left untouched because a third-party tool or animation-driven component uses its material.",
+     "เว้นไว้ไม่แก้ไขเนื่องจากเครื่องมือภายนอกหรือคอมโพเนนต์ที่ขับเคลื่อนด้วยแอนิเมชันใช้วัสดุนี้",
+     "保持不变：其材质被第三方工具或动画驱动组件使用。"),
     ("plan.note.currentFormatUnknown",
      "The current compression format could not be determined, so memory savings are unknown.",
      "ไม่สามารถระบุรูปแบบการบีบอัดปัจจุบันได้ จึงไม่ทราบการประหยัดหน่วยความจำ",
@@ -696,6 +703,10 @@ ENTRIES = [
      "Skipped {0} unsupported conversions. Each one is listed with its reason.",
      "ข้ามการแปลงที่ไม่รองรับ {0} รายการ แต่ละรายการแสดงพร้อมเหตุผล",
      "跳过了 {0} 个不支持的转换，每项均列出原因。"),
+    ("opt.protectedTextures",
+     "{0} textures were left untouched because third-party tool or animation-driven components use their materials.",
+     "เว้นเทกซ์เจอร์ {0} รายการไว้ไม่แก้ไข เนื่องจากเครื่องมือภายนอกหรือคอมโพเนนต์ที่ขับเคลื่อนด้วยแอนิเมชันใช้วัสดุของเทกซ์เจอร์เหล่านี้",
+     "有 {0} 个纹理保持不变，因为第三方工具或动画驱动组件使用了它们的材质。"),
 
     # ---------------------------------------------------------------- report export
     ("report.title", "AvatarTuner Report", "รายงาน AvatarTuner", "AvatarTuner 报告"),
