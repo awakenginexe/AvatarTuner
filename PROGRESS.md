@@ -194,7 +194,7 @@ and new pure view models:
   synchronous runs). Optimization is never automatic.
 - **Settings**: three preset cards with their quality/VRAM impact text, advanced per-texture
   overrides collapsed by default, preferences toggles with tooltips, output folder info.
-- **Localization**: 28 new keys added (341 keys × en/th/zh-Hans): workflow steps, disabled
+- **Localization**: 30 new keys added (341 keys × en/th/zh-Hans): workflow steps, disabled
   hints, texture status chips, compatibility groups, dashboard labels and insights. All
   display text goes through `UiStrings`; symbols (→ › • —) and numbers are the only
   literals. Source-key test enforces completeness in all three languages.
