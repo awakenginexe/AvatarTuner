@@ -286,6 +286,8 @@ ENTRIES = [
     ("ui.button.close", "Close", "ปิด", "关闭"),
     ("ui.button.copy", "Copy", "คัดลอก", "复制"),
     ("ui.button.ping", "Show in Editor", "แสดงในเอดิเตอร์", "在编辑器中定位"),
+    ("ui.button.useSelected", "Use Selected Avatar", "ใช้โมเดลที่เลือกอยู่", "使用当前选中的对象"),
+    ("ui.button.clearSelection", "Clear Selection", "ล้างการเลือก", "清除选择"),
     ("ui.button.viewManifest", "View Manifest", "ดู manifest", "查看清单"),
 
     # ---------------------------------------------------------------- labels
@@ -769,6 +771,10 @@ ENTRIES = [
      "เทกซ์เจอร์ {0} รายการต้องตรวจสอบด้วยตนเองก่อนใช้งาน", "有 {0} 个纹理需要手动检查后才能使用。"),
     ("ui.insight.clear", "No optimization opportunities or warnings found right now.",
      "ขณะนี้ไม่พบโอกาสในการปรับแต่งหรือคำเตือน", "当前未发现可优化项或警告。"),
+
+    # ---------------------------------------------------------------- selection notices
+    ("ui.notice.rootResolved", "Selected a child object; using avatar root '{0}'.",
+     "เลือกออบเจกต์ลูก จึงใช้รากโมเดล '{0}'", "选中的是子对象，已改用模型根 '{0}'。"),
 ]
 
 

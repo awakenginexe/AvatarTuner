@@ -308,3 +308,13 @@
     margin-right: 8px;
     min-width: 130px;
 }
+
+.at-dropzone {
+    min-height: 52px;
+    border-width: 2px;
+    border-radius: 6px;
+    margin-top: 6px;
+    padding: 10px;
+    align-items: center;
+    justify-content: center;
+}

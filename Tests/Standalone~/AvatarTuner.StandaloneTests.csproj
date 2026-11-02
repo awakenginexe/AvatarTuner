@@ -49,6 +49,7 @@
     <Compile Include="..\..\Editor\UI\ViewModels\TextureRowModel.cs" />
     <Compile Include="..\..\Editor\UI\ViewModels\CompatibilityGrouper.cs" />
     <Compile Include="..\..\Editor\UI\ViewModels\WorkflowModel.cs" />
+    <Compile Include="..\..\Editor\UI\ViewModels\AvatarSelectionModel.cs" />
   </ItemGroup>
 
   <ItemGroup>

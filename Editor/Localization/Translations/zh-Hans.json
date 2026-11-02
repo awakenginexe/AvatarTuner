@@ -116,6 +116,8 @@
     "ui.button.close": "关闭",
     "ui.button.copy": "复制",
     "ui.button.ping": "在编辑器中定位",
+    "ui.button.useSelected": "使用当前选中的对象",
+    "ui.button.clearSelection": "清除选择",
     "ui.button.viewManifest": "查看清单",
     "ui.label.avatar": "模型",
     "ui.label.avatarPath": "资源路径",
@@ -344,6 +346,7 @@
     "ui.group.conflicts": "冲突",
     "ui.insight.potentialSaving": "预计可节省显存：{0}（{1}）",
     "ui.insight.manualReview": "有 {0} 个纹理需要手动检查后才能使用。",
-    "ui.insight.clear": "当前未发现可优化项或警告。"
+    "ui.insight.clear": "当前未发现可优化项或警告。",
+    "ui.notice.rootResolved": "选中的是子对象，已改用模型根 '{0}'。"
   }
 }

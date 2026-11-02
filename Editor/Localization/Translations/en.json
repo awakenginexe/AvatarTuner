@@ -116,6 +116,8 @@
     "ui.button.close": "Close",
     "ui.button.copy": "Copy",
     "ui.button.ping": "Show in Editor",
+    "ui.button.useSelected": "Use Selected Avatar",
+    "ui.button.clearSelection": "Clear Selection",
     "ui.button.viewManifest": "View Manifest",
     "ui.label.avatar": "Avatar",
     "ui.label.avatarPath": "Asset path",
@@ -344,6 +346,7 @@
     "ui.group.conflicts": "Conflicts",
     "ui.insight.potentialSaving": "Potential GPU memory saving: {0} ({1})",
     "ui.insight.manualReview": "{0} texture(s) need manual review before use.",
-    "ui.insight.clear": "No optimization opportunities or warnings found right now."
+    "ui.insight.clear": "No optimization opportunities or warnings found right now.",
+    "ui.notice.rootResolved": "Selected a child object; using avatar root '{0}'."
   }
 }

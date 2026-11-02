@@ -64,8 +64,13 @@ namespace AvatarTuner.Editor.UI
         private VisualElement _nav;
         private VisualElement _navItems;
         private VisualElement _content;
+        private VisualElement _selectionArea;
         private VisualElement _statusArea;
         private VisualElement _actionArea;
+
+        private string _selectionMessageKey;
+        private bool _selectionMessageIsError;
+        private readonly List<string> _selectionMessageArgs = new List<string>();
 
         // ===================================================================== entry point
 
@@ -96,6 +101,11 @@ namespace AvatarTuner.Editor.UI
             TryLoadStylesheet();
 
             _root.Add(BuildWindowHeader());
+
+            // The selection panel lives in the shell, not in any module: it must be
+            // reachable in every state, especially before anything is selected.
+            _selectionArea = new VisualElement();
+            _root.Add(_selectionArea);
 
             _statusArea = new VisualElement();
             _root.Add(_statusArea);
@@ -255,6 +265,7 @@ namespace AvatarTuner.Editor.UI
                 return;
             }
 
+            BuildSelection();
             BuildNav();
             BuildActions();
             BuildStatus();
@@ -613,7 +624,6 @@ namespace AvatarTuner.Editor.UI
                 return;
             }
 
-            container.Add(BuildAvatarCard());
             container.Add(BuildDashboardCard());
 
             var insights = DashboardModel.BuildInsights(
@@ -627,17 +637,31 @@ namespace AvatarTuner.Editor.UI
             }
         }
 
-        private VisualElement BuildAvatarCard()
+        // ===================================================================== selection panel (permanent)
+
+        /// <summary>
+        /// The avatar selection panel. Permanently visible in EVERY window state: a real
+        /// ObjectField, an identifiable drag-and-drop zone for Hierarchy drags, the object
+        /// picker, and a "use current Hierarchy selection" button. It is never hidden or
+        /// disabled because of selection state (controls are read-only only while an
+        /// operation runs). This panel is what the regression fix guards.
+        /// </summary>
+        private void BuildSelection()
         {
+            _selectionArea.Clear();
+            var panel = AvatarSelectionModel.Build(_controller.State, _controller.Avatar != null);
+
             var card = Card("ui.section.avatarSelection");
 
+            // ---- name + status chips + selection buttons
             var nameRow = new VisualElement();
             nameRow.AddToClassList("at-row");
+
             var nameLabel = new Label(_controller.Avatar != null
                 ? _controller.Avatar.name
-                : UiStrings.T("ui.label.notAvailable"));
+                : UiStrings.T("ui.state.noSelection.title"));
             nameLabel.AddToClassList("at-text-strong");
-            nameLabel.style.color = UiTheme.Accent;
+            nameLabel.style.color = _controller.Avatar != null ? UiTheme.Accent : UiTheme.TextSecondary;
             nameRow.Add(nameLabel);
             nameRow.Add(Spacer());
 
@@ -658,27 +682,71 @@ namespace AvatarTuner.Editor.UI
                 DashboardModel.StatusTone(_controller.RecordedState != null
                     ? _controller.RecordedState.Status
                     : OptimizationStatus.NotOptimized)));
+
+            if (panel.ShowUseSelectedButton)
+            {
+                nameRow.Add(SecondaryButton("ui.button.useSelected", UseSelectedHierarchyObject));
+            }
+
+            if (panel.ShowClearButton)
+            {
+                nameRow.Add(SecondaryButton("ui.button.clearSelection", ClearSelection));
+            }
+
             card.Add(nameRow);
 
-            var fieldRow = new VisualElement();
-            fieldRow.AddToClassList("at-row");
-            fieldRow.style.marginTop = 6;
-
-            var field = new ObjectField();
-            field.label = UiStrings.T("ui.label.avatar");
-            field.objectType = typeof(GameObject);
-            field.allowSceneObjects = true;
-            field.value = _controller.Avatar;
-            field.tooltip = UiStrings.T("tip.avatarField");
-            field.AddToClassList("at-grow");
-            field.RegisterValueChangedCallback(evt =>
+            // ---- object field (always present; its selector button is the object picker)
+            if (panel.ShowObjectField)
             {
-                _controller.SelectAvatar(evt.newValue as GameObject);
-                ClearNotice();
-                RefreshView();
-            });
-            fieldRow.Add(field);
+                var fieldRow = new VisualElement();
+                fieldRow.AddToClassList("at-row");
+                fieldRow.style.marginTop = 6;
 
+                var field = new ObjectField();
+                field.label = UiStrings.T("ui.label.avatar");
+                field.objectType = typeof(GameObject);
+                field.allowSceneObjects = true;
+                field.value = _controller.Avatar;
+                field.tooltip = UiStrings.T("tip.avatarField");
+                field.AddToClassList("at-grow");
+                field.SetEnabled(panel.Enabled);
+                field.RegisterValueChangedCallback(evt =>
+                {
+                    var picked = evt.newValue as GameObject;
+                    if (evt.newValue != null && picked == null)
+                    {
+                        SetSelectionMessage("ui.drop.invalidType", true);
+                        RefreshView();
+                        return;
+                    }
+
+                    if (picked == null)
+                    {
+                        ClearSelection();
+                        return;
+                    }
+
+                    AcceptCandidate(picked);
+                });
+                fieldRow.Add(field);
+                card.Add(fieldRow);
+            }
+
+            // ---- drag-and-drop zone (always present, accepts Hierarchy drags)
+            if (panel.ShowDropZone)
+            {
+                card.Add(BuildDropZone(panel));
+            }
+
+            // ---- validation errors / resolution notices stay next to the zone
+            if (!string.IsNullOrEmpty(_selectionMessageKey))
+            {
+                card.Add(Message(
+                    UiStrings.T(_selectionMessageKey, _selectionMessageArgs.ToArray()),
+                    _selectionMessageIsError ? UiTheme.Error : UiTheme.Info));
+            }
+
+            // ---- advanced details (long ids stay collapsed)
             var advanced = new Foldout();
             advanced.text = UiStrings.T("ui.section.advanced");
             advanced.value = false;
@@ -705,9 +773,169 @@ namespace AvatarTuner.Editor.UI
                         : _controller.RecordedState.LastSuccessUtc));
             }
 
-            card.Add(fieldRow);
             card.Add(advanced);
-            return card;
+            _selectionArea.Add(card);
+        }
+
+        private VisualElement BuildDropZone(SelectionPanelState panel)
+        {
+            var zone = new VisualElement();
+            zone.AddToClassList("at-dropzone");
+            StyleDropZone(zone, DropZoneTone.Normal);
+
+            var hint = new Label(UiStrings.T("ui.drop.hint"));
+            hint.AddToClassList("at-text");
+            hint.style.color = UiTheme.TextSecondary;
+            zone.Add(hint);
+
+            zone.RegisterCallback<DragUpdatedEvent>(evt =>
+            {
+                if (!panel.Enabled)
+                {
+                    DragAndDrop.visualMode = DragAndDropVisualMode.Rejected;
+                    StyleDropZone(zone, DropZoneTone.Normal);
+                }
+                else if (DraggedGameObject() == null)
+                {
+                    DragAndDrop.visualMode = DragAndDropVisualMode.Rejected;
+                    StyleDropZone(zone, DropZoneTone.Reject);
+                }
+                else
+                {
+                    DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+                    StyleDropZone(zone, DropZoneTone.Hot);
+                }
+
+                evt.StopPropagation();
+            });
+
+            zone.RegisterCallback<DragExitedEvent>(evt => StyleDropZone(zone, DropZoneTone.Normal));
+
+            zone.RegisterCallback<DragPerformEvent>(evt =>
+            {
+                StyleDropZone(zone, DropZoneTone.Normal);
+                if (!panel.Enabled)
+                {
+                    evt.Use();
+                    return;
+                }
+
+                var dragged = DraggedGameObject();
+                if (dragged == null)
+                {
+                    DragAndDrop.visualMode = DragAndDropVisualMode.Rejected;
+                    SetSelectionMessage("ui.drop.invalidType", true);
+                    evt.Use();
+                    RefreshView();
+                    return;
+                }
+
+                DragAndDrop.AcceptDrag();
+                evt.Use();
+                AcceptCandidate(dragged);
+            });
+
+            return zone;
+        }
+
+        private enum DropZoneTone
+        {
+            Normal,
+            Hot,
+            Reject
+        }
+
+        private static void StyleDropZone(VisualElement zone, DropZoneTone tone)
+        {
+            var border = tone == DropZoneTone.Hot
+                ? UiTheme.Accent
+                : (tone == DropZoneTone.Reject ? UiTheme.Error : UiTheme.CardBorder);
+            zone.style.borderLeftColor = border;
+            zone.style.borderRightColor = border;
+            zone.style.borderTopColor = border;
+            zone.style.borderBottomColor = border;
+            zone.style.backgroundColor = tone == DropZoneTone.Hot
+                ? UiTheme.SelectedBackground
+                : UiTheme.CardBackground;
+        }
+
+        private static GameObject DraggedGameObject()
+        {
+            var references = DragAndDrop.objectReferences;
+            if (references == null)
+            {
+                return null;
+            }
+
+            for (var i = 0; i < references.Length; i++)
+            {
+                var gameObject = references[i] as GameObject;
+                if (gameObject != null)
+                {
+                    return gameObject;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>Accepts a validated candidate from any selection path.</summary>
+        private void AcceptCandidate(GameObject candidate)
+        {
+            ClearSelectionMessage();
+            var verdict = _controller.Select(candidate);
+            if (verdict == SelectionVerdict.AcceptedChildResolved)
+            {
+                SetSelectionMessage("ui.notice.rootResolved", false,
+                    _controller.Avatar != null ? _controller.Avatar.name : string.Empty);
+            }
+            else if (!AvatarSelectionModel.IsAccepted(verdict))
+            {
+                SetSelectionMessage(AvatarSelectionModel.ErrorKeyFor(verdict) ?? "ui.drop.invalidType", true);
+            }
+
+            ClearNotice();
+            RefreshView();
+        }
+
+        private void UseSelectedHierarchyObject()
+        {
+            var picked = Selection.activeGameObject;
+            var verdict = AvatarSelectionModel.Validate(picked != null, true);
+            if (!AvatarSelectionModel.IsAccepted(verdict))
+            {
+                SetSelectionMessage(AvatarSelectionModel.ErrorKeyFor(verdict) ?? "error.noAvatar", true);
+                RefreshView();
+                return;
+            }
+
+            AcceptCandidate(picked);
+        }
+
+        private void ClearSelection()
+        {
+            ClearSelectionMessage();
+            _controller.SelectAvatar(null);
+            ClearNotice();
+            RefreshView();
+        }
+
+        private void SetSelectionMessage(string key, bool isError, params string[] args)
+        {
+            _selectionMessageKey = key;
+            _selectionMessageIsError = isError;
+            _selectionMessageArgs.Clear();
+            if (args != null)
+            {
+                _selectionMessageArgs.AddRange(args);
+            }
+        }
+
+        private void ClearSelectionMessage()
+        {
+            _selectionMessageKey = null;
+            _selectionMessageIsError = false;
+            _selectionMessageArgs.Clear();
         }
 
         private VisualElement BuildDashboardCard()
@@ -827,8 +1055,6 @@ namespace AvatarTuner.Editor.UI
                 container.Add(EmptyState());
                 return;
             }
-
-            container.Add(BuildAvatarCard());
 
             var toolbar = new VisualElement();
             toolbar.AddToClassList("at-row");
@@ -1267,8 +1493,6 @@ namespace AvatarTuner.Editor.UI
 
         private void BuildTrackingModule(VisualElement container)
         {
-            container.Add(BuildAvatarCard());
-
             var status = _controller.ChangeStatus;
             if (status == null)
             {

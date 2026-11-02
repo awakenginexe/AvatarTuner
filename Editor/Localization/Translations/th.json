@@ -116,6 +116,8 @@
     "ui.button.close": "ปิด",
     "ui.button.copy": "คัดลอก",
     "ui.button.ping": "แสดงในเอดิเตอร์",
+    "ui.button.useSelected": "ใช้โมเดลที่เลือกอยู่",
+    "ui.button.clearSelection": "ล้างการเลือก",
     "ui.button.viewManifest": "ดู manifest",
     "ui.label.avatar": "โมเดล",
     "ui.label.avatarPath": "พาธทรัพยากร",
@@ -344,6 +346,7 @@
     "ui.group.conflicts": "ความขัดแย้ง",
     "ui.insight.potentialSaving": "ประหยัดหน่วยความจำ GPU ที่เป็นไปได้: {0} ({1})",
     "ui.insight.manualReview": "เทกซ์เจอร์ {0} รายการต้องตรวจสอบด้วยตนเองก่อนใช้งาน",
-    "ui.insight.clear": "ขณะนี้ไม่พบโอกาสในการปรับแต่งหรือคำเตือน"
+    "ui.insight.clear": "ขณะนี้ไม่พบโอกาสในการปรับแต่งหรือคำเตือน",
+    "ui.notice.rootResolved": "เลือกออบเจกต์ลูก จึงใช้รากโมเดล '{0}'"
   }
 }

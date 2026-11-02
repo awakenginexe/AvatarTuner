@@ -15,6 +15,7 @@ using AvatarTuner.Core;
 using AvatarTuner.Editor.Analysis;
 using AvatarTuner.Editor.Optimization;
 using AvatarTuner.Editor.Tracking;
+using AvatarTuner.Editor.ViewModels;
 using UnityEditor;
 using UnityEngine;
 
@@ -91,6 +92,83 @@ namespace AvatarTuner.Editor.UI
                 RootKey = ComputeRootKey(avatar, null);
                 RefreshStatus();
             }
+        }
+
+        /// <summary>
+        /// Accepts a user selection from any of the three input paths (drag &amp; drop,
+        /// object picker, current Hierarchy selection). A child GameObject resolves to its
+        /// enclosing avatar root when one exists (a root carrying an avatar descriptor such
+        /// as VRCAvatarDescriptor). Selection never modifies the avatar, never optimizes,
+        /// and drops every stale result belonging to the previously selected avatar.
+        /// </summary>
+        public SelectionVerdict Select(GameObject candidate)
+        {
+            if (candidate == null)
+            {
+                return SelectionVerdict.RejectedNothingSelected;
+            }
+
+            var resolved = ResolveAvatarRoot(candidate);
+            SelectAvatar(resolved);
+            return resolved == candidate
+                ? SelectionVerdict.Accepted
+                : SelectionVerdict.AcceptedChildResolved;
+        }
+
+        /// <summary>
+        /// The avatar root for a selected object: the nearest ancestor carrying an avatar
+        /// descriptor, or the object itself when none exists. Detection is type-name based,
+        /// so AvatarTuner keeps no compile-time dependency on the VRChat SDK.
+        /// </summary>
+        internal static GameObject ResolveAvatarRoot(GameObject selected)
+        {
+            if (selected == null)
+            {
+                return null;
+            }
+
+            var chain = new List<Transform>();
+            var flags = new List<bool>();
+            var current = selected.transform;
+            while (current != null && chain.Count < 128)
+            {
+                // Depth guard: absurd hierarchies must not hang the editor.
+                chain.Add(current);
+                flags.Add(HasAvatarDescriptor(current));
+                current = current.parent;
+            }
+
+            var level = AvatarSelectionModel.ResolveAvatarRootLevel(flags);
+            return level >= 0 && level < chain.Count ? chain[level].gameObject : selected;
+        }
+
+        /// <summary>
+        /// True when the object carries an avatar descriptor component (VRCAvatarDescriptor
+        /// and friends). Recognized by type name only - never by SDK reference.
+        /// </summary>
+        internal static bool HasAvatarDescriptor(Transform target)
+        {
+            if (target == null)
+            {
+                return false;
+            }
+
+            var components = target.GetComponents<Component>();
+            for (var i = 0; i < components.Length; i++)
+            {
+                if (components[i] == null)
+                {
+                    continue; // missing script placeholder
+                }
+
+                var typeName = components[i].GetType().Name;
+                if (typeName.IndexOf("AvatarDescriptor", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         // ===================================================================== analysis

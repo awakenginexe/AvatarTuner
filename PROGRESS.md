@@ -1,6 +1,6 @@
 # AvatarTuner v1.0.0 — Progress
 
-Status label: **Milestones 1–7 implemented | UI/UX redesign complete | 211 offline tests green | Unity compile clean (round 2) | redesigned UI awaiting user's manual visual test** (target for release)
+Status label: **Milestones 1–7 implemented | UI/UX redesign complete | avatar-selection regression fixed | 215 offline tests green | awaiting user's manual Unity test** (target for release)
 
 Development workspace: `C:/Users/ANXE/Desktop/Coding/AvatarTuner`
 Hard rules honored: Unity is never launched, no Unity project is opened or modified,
@@ -199,6 +199,50 @@ and new pure view models:
   display text goes through `UiStrings`; symbols (→ › • —) and numbers are the only
   literals. Source-key test enforces completeness in all three languages.
 
+## Avatar Selection regression fix (complete; manual test pending)
+
+The user's Unity test found that dragging an avatar root from the Hierarchy into the
+redesigned window did nothing and no avatar area was visible.
+
+**Root cause (exact regression):** `BuildOverviewModule` / `BuildTexturesModule` early-return
+with `EmptyState()` when no avatar and no report exist — and the avatar selection card
+(whose `ObjectField` was the only selection affordance) was rendered *inside* those
+modules *after* the early return. With nothing selected, the panel — ObjectField included —
+simply never existed. The old IMGUI window had drawn the ObjectField unconditionally in the
+header; the redesign moved it behind a state check.
+
+**Fix:**
+- The selection panel now lives in the window shell (next to the header), not in any module.
+  It renders in EVERY window state and is never hidden or disabled by selection state
+  (controls are read-only only while an operation runs). Pinned by
+  `AvatarSelectionTests.SelectionPanelIsPermanent` / `OnlyBusyDisablesSelection`.
+- Three selection paths, one shared validation (`AvatarSelectionModel.Validate`):
+  1. Drag & drop — a permanent, clearly bordered drop zone (`at-dropzone`) with visible
+     hover feedback (accent + tinted background for valid GameObjects, red border for
+     invalid drags) handling `DragUpdatedEvent` / `DragPerformEvent` /
+     `DragExitedEvent`, `DragAndDrop.objectReferences` and `DragAndDrop.AcceptDrag()`.
+     The `ObjectField` accepts Hierarchy drags as well.
+  2. Object Picker — `UnityEditor.UIElements.ObjectField` with
+     `objectType = typeof(GameObject)`, `allowSceneObjects = true`.
+  3. "Use Selected Avatar" — takes `Selection.activeGameObject`.
+- Avatar-root validation (`AvatarTunerController.ResolveAvatarRoot`): a selected child
+  object resolves to the nearest enclosing avatar root carrying an avatar descriptor
+  (VRCAvatarDescriptor and friends, detected by type name — no VRChat SDK dependency),
+  with `ui.notice.rootResolved` shown; without a descriptor the selection itself is used.
+  Non-GameObject drops are rejected with `ui.drop.invalidType`; empty picks report
+  `error.noAvatar`. Resolution rule is pure and tested
+  (`AvatarSelectionModel.ResolveAvatarRootLevel`).
+- On a valid selection the controller state updates (name + GameObject reference shown,
+  stale analysis/plan/results from the previous avatar dropped), Analyze becomes available,
+  and nothing is modified or optimized automatically. "Clear Selection" restores the empty
+  state with the drop zone still accessible.
+- Action gating (verified): Analyze disabled without a valid avatar; Optimize disabled until
+  a change-bearing plan exists and compatibility allows; Clean Up disabled when the manifest
+  has no generated outputs.
+
+New localization keys: `ui.button.useSelected`, `ui.button.clearSelection`,
+`ui.notice.rootResolved` (344 keys × en/th/zh-Hans).
+
 ## Test command (offline, no Unity)
 
 ```bash
@@ -206,9 +250,9 @@ cd Tests/Standalone~
 dotnet run --project AvatarTuner.StandaloneTests.csproj
 ```
 
-Last result: **211 passed, 0 failed, 0 skipped** (148 inherited + 15 CompatibilityTests +
+Last result: **215 passed, 0 failed, 0 skipped** (148 inherited + 15 CompatibilityTests +
 15 PlanBuilderTests + 11 TrackingTests + 1 Unity-format-spelling regression test +
-6 WindowFlowTests + 15 ViewModelTests).
+6 WindowFlowTests + 15 ViewModelTests + 4 AvatarSelectionTests).
 
 The **entire** `Editor/` source tree (AvatarScanner, CompatibilityScanner, TextureOptimizer,
 GeneratedAssetStore, ChangeTrackingService, UnityFingerprintProvider, AvatarAnalysisModel,
@@ -288,10 +332,14 @@ implemented).
 
 - Unity 2022.3 compilation — round 1 found 3 errors in `AvatarScanner.cs`; fixes are
   **confirmed clean by the user's round-2 compile (0 errors)**
+- The **avatar selection workflow** (user's acceptance test): drag the `meropan` root from
+  Hierarchy and see it selected immediately; Object Picker and "Use Selected Avatar" work;
+  Analyze becomes available; drop zone survives Clear Selection; validation messages and
+  drag-hover feedback render correctly
 - The **redesigned UI Toolkit window** (user's visual test): rendering, dark/light theme
   contrast, sidebar/compact navigation at all dock sizes, dashboard numbers, texture list
   (thumbnails, chips, sorting), grouped compatibility cards + ping, action hierarchy,
-  progress/cancel, dialogs, and Thai/Chinese typography — none of this has run in Unity yet
+  progress/cancel, dialogs, and Thai/Chinese typography
 - EditMode tests execution
 - Actual texture re-import / VRAM measurement inside the editor
 - VRChat SDK 3 interaction, PhysBones/Contacts live scanning
