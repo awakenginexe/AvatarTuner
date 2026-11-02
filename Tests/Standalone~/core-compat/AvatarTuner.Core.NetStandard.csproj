@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Compiles the AvatarTuner Core sources against .NET Standard 2.1 with C# 9.0.
+
+    This is not a Unity project and never touches Unity. It exists to prove two things
+    that would otherwise only be discoverable inside the Unity Editor:
+
+      1. The Core sources compile with C# 9.0, the language version Unity 2022.3 LTS uses.
+      2. They only use APIs present in .NET Standard 2.1, the API surface Unity 2022.3
+         exposes to package code.
+
+    If this project builds, the Core assembly definition's `noEngineReferences` claim is
+    also proven: no UnityEngine or UnityEditor type can be referenced, because neither is
+    available here.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>AvatarTuner.Core</AssemblyName>
+    <RootNamespace>AvatarTuner.Core</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningLevel>4</WarningLevel>
+    <NoWarn>CS1591</NoWarn>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\Core\**\*.cs" />
+  </ItemGroup>
+
+</Project>

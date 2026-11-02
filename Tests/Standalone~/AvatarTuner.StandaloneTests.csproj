@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Standalone unit tests for AvatarTuner Core.
+
+    These run with plain `dotnet run` and need no Unity installation, no NuGet restore and
+    no network access. The custom micro test framework is deliberate: it keeps the test
+    project free of package references so it works on a machine without a NuGet cache.
+
+    Usage:
+        dotnet run [dash dash]project Tests/Standalone~/AvatarTuner.StandaloneTests.csproj
+        ... add [dash dash]filter minijson to run a subset
+        ... add [dash dash]list to list the discovered tests
+  -->
+
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>AvatarTuner.StandaloneTests</AssemblyName>
+    <RootNamespace>AvatarTuner.StandaloneTests</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>CS1591</NoWarn>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Core is compiled separately against netstandard2.1 to prove Unity 2022.3 compatibility. -->
+    <ProjectReference Include="core-compat\AvatarTuner.Core.NetStandard.csproj" />
+  </ItemGroup>
+
+</Project>

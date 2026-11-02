@@ -1,0 +1,107 @@
+# AvatarTuner v1.0.0 — Progress
+
+Status label: **Milestones 1–4 implemented & verified offline | Unity Integration Verification Pending** (target for release)
+
+Development workspace: `C:/Users/ANXE/Desktop/Coding/AvatarTuner`
+Hard rules honored: Unity is never launched, no Unity project is opened or modified,
+no batch-mode compile, no VRChat SDK build. Only offline verification is claimed as passed.
+
+## Milestones (8)
+
+| # | Milestone | State |
+|---|-----------|-------|
+| 1 | Package structure & architecture (UPM layout, asmdefs) | DONE |
+| 2 | Core pure-C# logic layer (no UnityEngine/UnityEditor) | DONE — 163/163 offline tests pass |
+| 3 | Localization en / th / zh-Hans | DONE — 308 keys × 3 languages, generated + validated |
+| 4 | Avatar scanning, dependency tracking & compatibility (Editor) | DONE — scanner + compatibility scanner + tool detection complete |
+| 5 | Texture optimization integration (Editor) | pending |
+| 6 | Generated-asset management & change-tracking integration | pending |
+| 7 | Unity Editor UI (window, menus, progress, errors) | pending |
+| 8 | Docs, Unity test stubs, verification report, package finalization | pending |
+
+## What exists so far
+
+- `package.json`, `Core/AvatarTuner.Core.asmdef` (`noEngineReferences: true`),
+  `Editor/AvatarTuner.Editor.asmdef`, `Tests/Editor/AvatarTuner.Editor.Tests.asmdef`
+- `Core/` — MiniJson, StableHash, EngineVersion, TextureFormatInfo, TextureUsageClassifier,
+  OptimizationPolicy, CompressionPlanner, CompressionSimulator, QualityMetrics, VramCalculator,
+  ChangeAnalyzer, ManifestModels, TranslationCatalog, **CompatibilityPolicy** (14 files)
+- `Editor/Analysis/` — AvatarAnalysisModel (report model), AvatarScanner (dependency aware
+  avatar scan), **CompatibilityScanner** (third-party tool evidence → CompatibilityReport)
+- `Editor/Localization/Translations/{en,th,zh-Hans}.json` + `Tools~/build_translations.py`
+  (single source of truth; regenerating keeps all languages in lock-step)
+- `Tests/Standalone~/` — dependency-free test runner (net8.0) plus a `core-compat` project that
+  compiles Core under **netstandard2.1 + C# 9** to verify the Unity 2022.3 API/language surface
+
+## Compatibility Scanner design (Milestone 4, completed)
+
+- `Core/CompatibilityPolicy.cs` — Unity-free registry of known tools (VRCFury, Modular Avatar,
+  NDMF, d4rkAvatarOptimizer, Avatar Optimizer) with detection fragments for component type
+  names, assembly names and package ids, plus the evaluation rules. Pure and unit tested.
+- `Editor/Analysis/CompatibilityScanner.cs` — observation only: component walk (reflection
+  free, name based), `AppDomain` assemblies, `PackageManager.PackageInfo` packages, and
+  animation-driven systems (SPS/PCS style) from the dynamic-component scan. Never modifies
+  tool components or their settings.
+- Policy verdict: informational tools report only; each mesh optimizer warns (AAO medium risk,
+  d4rk high risk); **both optimizers active on the same avatar block optimization** and the
+  avatar becomes read-only analysis (`status.unsupported` semantics). Animation-driven systems
+  are reported and protected, never touched.
+- Message keys: `compat.*` (13), `finding.*` + `finding.kind.*` (14), `usage.reason.*` (1) —
+  all present in en / th / zh-Hans and enforced by the source-scanner localization test.
+
+## Test command (offline, no Unity)
+
+```bash
+cd Tests/Standalone~
+dotnet run --project AvatarTuner.StandaloneTests.csproj
+```
+
+Last result: **163 passed, 0 failed, 0 skipped** (148 inherited + 15 new CompatibilityTests).
+
+Editor glue (`CompatibilityScanner`, `AvatarAnalysisModel`) is additionally type-checked
+offline against Unity API stubs (`dotnet build` in a scratch project, no Unity involved);
+this is not the same as real Unity compilation.
+
+## Defects found and fixed by tests / review (real bugs, not test churn)
+
+1. `TranslationCatalog.Format` / `UnescapeBraces` infinite recursion on templates without arguments.
+2. `EngineVersion` parser accepted invalid versions such as `2022.x.1`.
+3. `Tools~/build_translations.py` wrote `languageCode: "English"` for the English catalog,
+   which silently disabled fallback detection (`IsFallback` derives from the code `en`).
+4. `ChangeAnalyzer` flagged `DependencyRemoved` as `InvalidatesEverything` while the analysis
+   applied partial invalidation. The spec demands partial invalidation ("invalidate only the
+   affected outputs"); the flag and the stale test were corrected to match.
+5. A two-colour checkerboard is exactly representable by BC1 (2 endpoints + 2-bit indices), so it
+   round-trips losslessly and cannot serve as "high frequency noise" in quality tests. The test
+   now uses deterministic pseudo-random noise.
+6. 15 message keys emitted by `AvatarScanner` (`finding.*`, `usage.reason.duplicateContent`) were
+   missing from all three catalogs, and the source-key localization test silently skipped them
+   because `TranslationValidator.KnownKeyNamespaces` lacked `finding.` / `usage.`. The keys were
+   added in all three languages and the namespaces extended so the guard now covers them.
+7. `CompatibilityPolicy` matching is substring based, and `d4rkAvatarOptimizer` contains
+   `AvatarOptimizer`. Registry order is match priority, so d4rkAvatarOptimizer must precede
+   Avatar Optimizer or every d4rk component resolves to the wrong tool. Fixed + regression test.
+
+## Next steps (exact)
+
+1. Milestone 5: `Editor/Optimization/TextureOptimizer.cs` materializing `CompressionPlanner`
+   decisions into generated assets (originals untouched). Pin/exclude materials driven by
+   animation-driven systems (`CompatAssessment.AnimationDrivenSystems`) and tools' components.
+2. Milestone 6: generated-asset manifest persistence, regeneration, safe cleanup, tamper
+   detection wired to `ChangeAnalyzer`.
+3. Milestone 7: `Editor/UI/AvatarTunerWindow.cs`, menu item, progress/cancel, all states.
+   Compatibility section renders `CompatibilityReport` (DetectedTools with `compat.risk*`
+   badges, Notices, Warnings, Blockers); disable Optimize when `IsOptimizationAllowed` is
+   false and show `compat.manualInspection` when warnings exist.
+4. Milestone 8: README, CHANGELOG, install guide, user guide, limitations, verification report,
+   manual Unity checklist, NUnit EditMode stubs (execution pending), `.meta` files.
+
+## Pending Unity-dependent verification (never run, never claimed)
+
+- Unity 2022.3 compilation of `Editor/` and `Tests/Editor/`
+- EditMode tests execution
+- Actual texture re-import / VRAM measurement inside the editor
+- VRChat SDK 3 interaction, PhysBones/Contacts live scanning
+- UI rendering incl. Thai script shaping (system font dependent)
+- `AnimatorOverrideController.clips` is obsolete in 2022.3 (returns `AnimationClipPair[]`;
+  the scan code compiles with a warning) — migrate to `GetOverrides` when verified in Unity
