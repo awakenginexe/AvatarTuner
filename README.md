@@ -53,36 +53,50 @@ modified.
 
 ## Installation
 
-AvatarTuner is a Unity package (UPM). Any of these works:
+### Option 1: VRChat Creator Companion (Recommended)
 
-- **VRChat Creator Companion (recommended):** add the AvatarTuner VPM repository, then install the package into your project:
-  1. Open the VRChat Creator Companion.
-  2. Go to **Settings → Packages**.
-  3. Click **Add Repository**.
-  4. Paste the AvatarTuner repository URL: `https://awakenginexe.github.io/AvatarTuner/index.json`
-  5. Confirm the repository.
-  6. Open your VRChat project.
-  7. Find **AvatarTuner** under **Manage Packages** and install it.
+The easiest way to install and keep AvatarTuner updated automatically.
 
-  Adding the repository only makes AvatarTuner available — you still install it into each
-  project yourself. (The repository URL goes live with the first public release.)
+[**➕ Add to VCC (One-Click Install)**](vcc://vpm/addRepo?url=https%3A%2F%2Fawakenginexe.github.io%2FAvatarTuner%2Findex.json)
 
-  **Updating via VCC:** VCC tells you when a new version is available; open your project
-  and click **Update** next to AvatarTuner under Manage Packages.
+#### Or Add Repository Manually:
+1. Copy the VPM repository URL:
+   ```text
+   https://awakenginexe.github.io/AvatarTuner/index.json
+   ```
+2. In VCC, open **Settings → Packages**.
+3. Click **Add Repository** in the top right.
+4. Paste the URL and confirm.
+5. Open your project, go to **Manage Packages**, find **AvatarTuner**, and click **Install**.
 
-  **Switching from a previous .unitypackage install:** If you previously installed
-  AvatarTuner via `.unitypackage`, verify you have no personal assets or custom modifications
-  in `Assets/AvatarTuner/`, then delete `Assets/AvatarTuner/` (and its `.meta` file) before
-  adding the package via VCC to avoid duplicate file conflicts. Existing avatar references
-  and generated assets remain unaffected.
-- **Download the latest release (.unitypackage):** get the file from
-  [GitHub Releases](https://github.com/awakenginexe/AvatarTuner/releases/latest), open your
-  Unity project, then **Assets → Import Package → Custom Package…** and select the file.
-  Afterwards open AvatarTuner via **Tools → AvatarTuner**.
-- **Git URL:** Window → Package Manager → `+` → *Add package from git URL…* →
-  `https://github.com/awakenginexe/AvatarTuner.git`
-- **Manual:** copy this repository's contents into your project's `Packages/AvatarTuner/`
-  folder (or into `Assets/`).
+> [!TIP]
+> **Updating:** When a new version is released, VCC will display an **Update** button next to AvatarTuner under **Manage Packages**.
+
+> [!NOTE]
+> **Switching from a previous .unitypackage install:** If you previously installed AvatarTuner via `.unitypackage`, verify you have no personal assets or custom modifications in `Assets/AvatarTuner/`, then delete `Assets/AvatarTuner/` (and its `.meta` file) before adding the package via VCC to avoid duplicate file conflicts. Existing avatar references and generated assets remain unaffected.
+
+---
+
+### Option 2: Unity Package (.unitypackage)
+
+If you prefer not using VCC:
+
+1. Download the latest **`AvatarTuner-v1.0.0.unitypackage`** from [GitHub Releases](https://github.com/awakenginexe/AvatarTuner/releases/latest).
+2. In your Unity project, go to **Assets → Import Package → Custom Package…** and select the file.
+3. Open the window via **Tools → AvatarTuner**.
+
+---
+
+### Option 3: Unity Package Manager (Git URL)
+
+1. In Unity, open **Window → Package Manager**.
+2. Click the **`+`** icon in the top left and select **Add package from git URL…**.
+3. Paste:
+   ```text
+   https://github.com/awakenginexe/AvatarTuner.git
+   ```
+
+---
 
 The package contains: `Core/` (pure logic), `Editor/` (window, scanner, optimizer,
 tracking, application, NDMF integration), `Editor/Localization/Translations/` (three

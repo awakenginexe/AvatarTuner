@@ -33,30 +33,52 @@ AvatarTuner 优化的是**纹理资源与材质引用**。它不会减少网格�
 - 可选：**NDMF**（`nadena.dev.ndmf`）提供构建期应用。未安装 NDMF 时，直接场景应用功能完整可用。
 - 已知优化器（AAO / d4rkAvatarOptimizer）会被检测；存在冲突的变换会被跳过并给出可操作的警告，而不是互相争抢。
 
-## 安装
+## 安装指南
 
-AvatarTuner 是 Unity 包（UPM）。任选一种方式：
+### 方式一：通过 VRChat Creator Companion（推荐）
 
-- **VRChat Creator Companion（推荐）：** 添加 AvatarTuner 的 VPM 仓库，然后将包安装到你的项目中：
-  1. 打开 VRChat Creator Companion。
-  2. 前往 **Settings → Packages**。
-  3. 点击 **Add Repository**。
-  4. 粘贴 AvatarTuner 仓库地址：`https://awakenginexe.github.io/AvatarTuner/index.json`
-  5. 确认添加仓库。
-  6. 打开目标 VRChat 项目。
-  7. 在 **Manage Packages** 中找到 **AvatarTuner** 并安装。
+这是安装及获取后续自动更新最便捷的方式。
 
-  添加仓库只是让 AvatarTuner 变为可用状态——你仍需手动将它安装进具体项目。（该仓库地址将在首次公开发布后生效。）
+[**➕ 一键添加至 VCC（One-Click Install）**](vcc://vpm/addRepo?url=https%3A%2F%2Fawakenginexe.github.io%2FAvatarTuner%2Findex.json)
 
-  **通过 VCC 更新：** 有新版本时 VCC 会提示；打开项目，在 Manage Packages 中点击 AvatarTuner 旁的 **Update** 即可。
+#### 或手动添加仓库：
+1. 复制以下 VPM 仓库地址：
+   ```text
+   https://awakenginexe.github.io/AvatarTuner/index.json
+   ```
+2. 打开 VCC，进入 **Settings → Packages**。
+3. 点击右上角 **Add Repository**。
+4. 粘贴上述地址并确认添加。
+5. 打开你的 VRChat 项目，进入 **Manage Packages** 页面，找到 **AvatarTuner** 并点击 **Install**。
 
-  **从此前的 .unitypackage 安装迁移：** 若此前通过 `.unitypackage` 安装过 AvatarTuner，请先确认 `Assets/AvatarTuner/` 目录内无个人资产或自定义修改，随后在通过 VCC 添加包前手动删除 `Assets/AvatarTuner/` 目录及其 `.meta` 文件，以避免文件与程序集重复冲突。模型引用与已生成的优化资产均不受影响。
-- **下载最新发布版本（.unitypackage）：** 从 [GitHub Releases](https://github.com/awakenginexe/AvatarTuner/releases/latest)
-  获取文件，打开你的 Unity 项目，然后 **Assets → Import Package → Custom Package…**
-  并选择该文件。之后通过 **Tools → AvatarTuner** 打开 AvatarTuner。
-- **Git URL：** Window → Package Manager → `+` → *Add package from git URL…* →
-  `https://github.com/awakenginexe/AvatarTuner.git`
-- **手动：** 将本仓库内容复制到项目的 `Packages/AvatarTuner/` 目录（或 `Assets/` 下）。
+> [!TIP]
+> **版本更新：** 当有新版本发布时，VCC 会在项目的 Manage Packages 列表中显示 **Update** 按钮，点击即可一键升级。
+
+> [!NOTE]
+> **从此前的 .unitypackage 安装迁移：** 若此前曾通过 `.unitypackage` 安装，请先确认 `Assets/AvatarTuner/` 目录内无自定义个人文件，随后在安装 VPM 包前手动删除 `Assets/AvatarTuner/` 目录及其 `.meta` 文件，以避免文件与程序集重复冲突。模型引用与已生成的优化资产均不受影响。
+
+---
+
+### 方式二：导入 Unity Package (.unitypackage)
+
+若无需使用 VCC，可直接下载单文件安装包：
+
+1. 从 [GitHub Releases](https://github.com/awakenginexe/AvatarTuner/releases/latest) 下载最新的 **`AvatarTuner-v1.0.0.unitypackage`**。
+2. 打开你的 Unity 项目，选择 **Assets → Import Package → Custom Package…** 并选中下载的文件。
+3. 导入完成后，在菜单栏打开 **Tools → AvatarTuner**。
+
+---
+
+### 方式三：通过 Git URL（Unity Package Manager）
+
+1. 在 Unity 中打开 **Window → Package Manager**。
+2. 点击左上角的 **`+`** 按钮，选择 **Add package from git URL…**。
+3. 输入以下地址：
+   ```text
+   https://github.com/awakenginexe/AvatarTuner.git
+   ```
+
+---
 
 包内容：`Core/`（纯逻辑）、`Editor/`（窗口、扫描器、优化器、追踪、应用、NDMF 集成）、`Editor/Localization/Translations/`（三种语言）、`package.json` 以及程序集定义文件。
 

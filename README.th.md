@@ -35,26 +35,50 @@ AvatarTuner มุ่งเน้นการ Optimize **Texture Asset และ
 
 ## วิธีติดตั้ง (Installation)
 
-AvatarTuner เป็น Unity Package (UPM) สามารถเลือกติดตั้งได้ 3 วิธี:
+### วิธีที่ 1: ผ่าน VRChat Creator Companion (แนะนำ)
 
-- **ผ่าน VRChat Creator Companion (แนะนำ):** เพิ่ม VPM Repository ของ AvatarTuner แล้วติดตั้งแพ็กเกจเข้าโปรเจกต์ของคุณ:
-  1. เปิด VRChat Creator Companion
-  2. ไปที่ **Settings → Packages**
-  3. กด **Add Repository**
-  4. วาง URL ของ AvatarTuner Repository: `https://awakenginexe.github.io/AvatarTuner/index.json`
-  5. กดยืนยันการเพิ่ม Repository
-  6. เปิดโปรเจกต์ VRChat เป้าหมายของคุณ
-  7. หา **AvatarTuner** ในหน้า **Manage Packages** แล้วกดติดตั้ง
+วิธีที่สะดวกที่สุดในการติดตั้งและรับอัปเดตอัตโนมัติ
 
-  การเพิ่ม Repository เป็นเพียงการทำให้ AvatarTuner พร้อมใช้งานเท่านั้น — คุณยังต้องติดตั้งมันเข้าโปรเจกต์ด้วยตนเอง (URL ของ Repository จะใช้งานได้หลังจากการเผยแพร่สาธารณะครั้งแรก)
+[**➕ เพิ่มลงใน VCC (One-Click Install)**](vcc://vpm/addRepo?url=https%3A%2F%2Fawakenginexe.github.io%2FAvatarTuner%2Findex.json)
 
-  **อัปเดตผ่าน VCC:** เมื่อมีเวอร์ชันใหม่ VCC จะแจ้งเตือน ให้เปิดโปรเจกต์แล้วกด **Update** ข้าง AvatarTuner ในหน้า Manage Packages ได้เลย
+#### หรือเพิ่ม Repository ด้วยตนเอง:
+1. คัดลอกลิงก์ VPM Repository ด้านล่าง:
+   ```text
+   https://awakenginexe.github.io/AvatarTuner/index.json
+   ```
+2. ใน VCC ไปที่ **Settings → Packages**
+3. กดปุ่ม **Add Repository** ที่มุมขวาบน
+4. วางลิงก์ที่คัดลอกมาแล้วกดยืนยัน
+5. เปิดโปรเจกต์ของคุณ ไปที่หน้า **Manage Packages** ค้นหา **AvatarTuner** แล้วกด **Install**
 
-  **ย้ายจากการติดตั้งแบบ .unitypackage เดิม:** หากเคยติดตั้ง AvatarTuner ผ่าน `.unitypackage` มาก่อน ให้ตรวจสอบว่าไม่มีไฟล์ส่วนตัวหรือการแก้ไขโค้ดตกค้างในโฟลเดอร์ `Assets/AvatarTuner/` จากนั้นลบโฟลเดอร์ `Assets/AvatarTuner/` (และไฟล์ `.meta`) ออกก่อนเพิ่มแพ็กเกจผ่าน VCC เพื่อป้องกันข้อผิดพลาดจากไฟล์ซ้ำซ้อน ทั้งนี้ไฟล์ที่ Optimize แล้วและ Asset เดิมของ Avatar จะไม่ได้รับผลกระทบใด ๆ
-- **ดาวน์โหลด Release ล่าสุด (.unitypackage):** รับไฟล์จาก [GitHub Releases](https://github.com/awakenginexe/AvatarTuner/releases/latest) เปิดโปรเจกต์ Unity ของคุณ แล้วไปที่ **Assets → Import Package → Custom Package…** เลือกไฟล์นั้น จากนั้นเปิด AvatarTuner ผ่านเมนู **Tools → AvatarTuner**
-- **ผ่าน Git URL:** ไปที่เมนู Window → Package Manager → กดปุ่ม `+` → เลือก *Add package from git URL…* → ใส่ลิงก์:
-  `https://github.com/awakenginexe/AvatarTuner.git`
-- **แบบ Manual:** คัดลอกเนื้อหาทั้งหมดใน Repository นี้ไปวางไว้ที่โฟลเดอร์ `Packages/AvatarTuner/` ในโปรเจกต์ของคุณ (หรือวางใน `Assets/`)
+> [!TIP]
+> **การอัปเดต:** เมื่อมีเวอร์ชันใหม่ VCC จะแสดงปุ่ม **Update** ข้าง AvatarTuner ให้กดอัปเดตได้ทันที
+
+> [!NOTE]
+> **ย้ายจากการติดตั้งแบบ .unitypackage เดิม:** หากเคยติดตั้ง AvatarTuner ผ่าน `.unitypackage` มาก่อน ให้ตรวจสอบว่าไม่มีไฟล์ส่วนตัวหรือการแก้ไขโค้ดตกค้างในโฟลเดอร์ `Assets/AvatarTuner/` จากนั้นลบโฟลเดอร์ `Assets/AvatarTuner/` (และไฟล์ `.meta`) ออกก่อนเพิ่มแพ็กเกจผ่าน VCC เพื่อป้องกันข้อผิดพลาดจากไฟล์ซ้ำซ้อน ทั้งนี้ไฟล์ที่ Optimize แล้วและ Asset เดิมของ Avatar จะไม่ได้รับผลกระทบใด ๆ
+
+---
+
+### วิธีที่ 2: นำเข้าผ่าน Unity Package (.unitypackage)
+
+สำหรับผู้ที่ไม่ต้องการใช้ VCC:
+
+1. ดาวน์โหลดไฟล์ **`AvatarTuner-v1.0.0.unitypackage`** จากหน้า [GitHub Releases](https://github.com/awakenginexe/AvatarTuner/releases/latest)
+2. ในโปรเจกต์ Unity ไปที่เมนู **Assets → Import Package → Custom Package…** แล้วเลือกไฟล์ที่ดาวน์โหลดมา
+3. เปิดหน้าต่างเครื่องมือได้ที่เมนู **Tools → AvatarTuner**
+
+---
+
+### วิธีที่ 3: ผ่าน Git URL (Unity Package Manager)
+
+1. ใน Unity ไปที่เมนู **Window → Package Manager**
+2. กดปุ่ม **`+`** ที่มุมซ้ายบน แล้วเลือก **Add package from git URL…**
+3. ใส่ลิงก์:
+   ```text
+   https://github.com/awakenginexe/AvatarTuner.git
+   ```
+
+---
 
 โครงสร้างภายในแพ็กเกจประกอบด้วย: `Core/` (Logic หลัก), `Editor/` (หน้าต่าง UI, Scanner, Optimizer, Tracking, Application และการเชื่อมต่อ NDMF), `Editor/Localization/Translations/` (ไฟล์แปล 3 ภาษา), `package.json` และไฟล์ Assembly Definition ต่าง ๆ
 
