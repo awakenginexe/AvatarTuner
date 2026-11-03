@@ -18,42 +18,48 @@ namespace AvatarTuner.StandaloneTests
     {
         // ------------------------------------------------------------------ dashboard
 
-        [Test("dashboard metrics carry only real numbers in hero-first order")]
+        [Test("dashboard metrics carry the honest status and only real counts")]
         public static void DashboardMetricsAreRealAndOrdered()
         {
             var report = MakeReport();
-            var plan = MakePlan(out _);
 
-            var metrics = DashboardModel.BuildMetrics(report, plan, OptimizationStatus.ChangesDetected);
+            var metrics = DashboardModel.BuildMetrics(report, AvatarDisplayStatus.ChangesDetected);
 
-            Assert.AreEqual(8, metrics.Count, "four hero/support pairs are shown");
-            Assert.AreEqual("ui.label.gpuMemory", metrics[0].LabelKey, "memory is the first hero metric");
-            Assert.AreEqual(MetricEmphasis.Primary, metrics[0].Emphasis, "memory is a hero metric");
-            Assert.AreEqual(TextureFormatInfo.FormatBytes(plan.SourceBytesTotal), metrics[0].Value,
-                "the memory value is the plan's own arithmetic");
-            Assert.AreEqual("results.basisComputed", metrics[0].SubTextKey,
-                "computed values are labelled as computed");
+            Assert.AreEqual(7, metrics.Count, "status plus six scan counts are shown");
+            Assert.AreEqual("ui.label.status", metrics[0].LabelKey, "status is the hero metric");
+            Assert.AreEqual(MetricEmphasis.Primary, metrics[0].Emphasis, "status is a hero metric");
+            Assert.AreEqual("status.changesDetected.name", metrics[0].ValueKey, "status resolves a key");
+            Assert.AreEqual("status.changesDetected.summary", metrics[0].SubTextKey,
+                "the status explains itself");
+            Assert.AreEqual(SemanticTone.Warning, metrics[0].Tone, "stale status reads as warning");
 
-            Assert.AreEqual("ui.label.status", metrics[1].LabelKey, "status is the second hero metric");
-            Assert.AreEqual("status.changesDetected.name", metrics[1].ValueKey, "status resolves a key");
-            Assert.AreEqual(SemanticTone.Warning, metrics[1].Tone, "stale status reads as warning");
-
-            Assert.AreEqual("2", metrics[2].Value, "texture count comes from the report");
-            Assert.AreEqual("1", metrics[3].Value, "material count comes from the report");
-            Assert.AreEqual("2", metrics[4].Value, "renderer count comes from the report");
-            Assert.AreEqual("3000", metrics[5].Value, "triangle count comes from the report");
-            Assert.AreEqual("7", metrics[6].Value, "blend shape count comes from the report");
-            Assert.AreEqual("1", metrics[7].Value, "phys bone count comes from the report");
+            Assert.AreEqual("2", metrics[1].Value, "texture count comes from the report");
+            Assert.AreEqual("1", metrics[2].Value, "material count comes from the report");
+            Assert.AreEqual("2", metrics[3].Value, "renderer count comes from the report");
+            Assert.AreEqual("3000", metrics[4].Value, "triangle count comes from the report");
+            Assert.AreEqual("7", metrics[5].Value, "blend shape count comes from the report");
+            Assert.AreEqual("1", metrics[6].Value, "phys bone count comes from the report");
         }
 
-        [Test("dashboard never invents memory before there is a plan")]
-        public static void DashboardWithoutPlanShowsNoMemory()
+        [Test("dashboard status wording never claims more than exists")]
+        public static void DashboardStatusIsHonest()
         {
-            var metrics = DashboardModel.BuildMetrics(MakeReport(), null, OptimizationStatus.NotOptimized);
+            // Ready to optimize is not "Optimized"; generating output is "Optimized Output
+            // Generated"; nothing here says "Applied to Avatar" because nothing is applied.
+            var metrics = DashboardModel.BuildMetrics(MakeReport(), AvatarDisplayStatus.ReadyToOptimize);
+            Assert.AreEqual("status.readyToOptimize.name", metrics[0].ValueKey,
+                "a pending plan reads as ready to optimize");
+            Assert.AreEqual(SemanticTone.Warning, metrics[0].Tone, "and asks for attention");
 
-            Assert.AreEqual("ui.label.notAvailable", metrics[0].ValueKey,
-                "without a plan the memory metric admits it does not know");
-            Assert.IsNull(metrics[0].Value, "and shows no made-up number");
+            metrics = DashboardModel.BuildMetrics(MakeReport(), AvatarDisplayStatus.OutputGenerated);
+            Assert.AreEqual("status.optimized.name", metrics[0].ValueKey,
+                "generated output reads as generated output");
+            Assert.AreEqual("status.appliedToAvatar.name",
+                StatusModel.NameKey(AvatarDisplayStatus.AppliedToAvatar),
+                "the applied status exists with its own honest wording");
+
+            Assert.AreEqual(0, DashboardModel.BuildMetrics(null, AvatarDisplayStatus.NotOptimized).Count,
+                "no report means no metrics at all");
         }
 
         [Test("insights report savings, risks and compatibility in severity order")]
@@ -320,9 +326,9 @@ namespace AvatarTuner.StandaloneTests
             Assert.AreEqual(PrimaryAction.Analyze,
                 WorkflowModel.NextAction(WindowState.Ready, true, false, false, false),
                 "then analyze");
-            Assert.AreEqual(PrimaryAction.Optimize,
+            Assert.AreEqual(PrimaryAction.ConfigureOptimization,
                 WorkflowModel.NextAction(WindowState.Analyzed, true, true, true, false),
-                "then optimize");
+                "then configure the optimization (Optimize opens the dialog, it never runs)");
             Assert.AreEqual(PrimaryAction.ReviewChanges,
                 WorkflowModel.NextAction(WindowState.Analyzed, true, true, false, false),
                 "an optimal avatar ends at review, not at a dead button");
@@ -332,6 +338,9 @@ namespace AvatarTuner.StandaloneTests
             Assert.AreEqual(PrimaryAction.Analyze,
                 WorkflowModel.NextAction(WindowState.Analyzing, true, true, true, true),
                 "while busy the running action stays primary");
+            Assert.AreEqual(PrimaryAction.ConfigureOptimization,
+                WorkflowModel.NextAction(WindowState.Optimizing, true, true, true, true),
+                "optimizing reports under the configure/confirm step");
         }
 
         [Test("disabled actions always explain themselves")]
@@ -363,12 +372,16 @@ namespace AvatarTuner.StandaloneTests
         [Test("the breadcrumb steps follow the workflow order")]
         public static void BreadcrumbStepsFollowWorkflow()
         {
-            Assert.AreEqual(5, WorkflowModel.StepLabelKeys.Length, "five steps");
-            Assert.AreEqual(0, WorkflowModel.ActiveStep(WindowState.NoSelection, false, false), "select");
-            Assert.AreEqual(1, WorkflowModel.ActiveStep(WindowState.Ready, true, false), "analyze");
-            Assert.AreEqual(2, WorkflowModel.ActiveStep(WindowState.Analyzed, true, false), "review");
-            Assert.AreEqual(3, WorkflowModel.ActiveStep(WindowState.Optimizing, true, false), "optimize");
-            Assert.AreEqual(4, WorkflowModel.ActiveStep(WindowState.Done, true, true), "results");
+            Assert.AreEqual(6, WorkflowModel.StepLabelKeys.Length, "six steps");
+            Assert.AreEqual(0, WorkflowModel.ActiveStep(WindowState.NoSelection, false, false, false), "select");
+            Assert.AreEqual(1, WorkflowModel.ActiveStep(WindowState.Ready, true, false, false), "analyze");
+            Assert.AreEqual(2, WorkflowModel.ActiveStep(WindowState.Analyzed, true, false, false), "configure");
+            Assert.AreEqual(3, WorkflowModel.ActiveStep(WindowState.Analyzed, true, false, true),
+                "the open dialog reviews the planned changes");
+            Assert.AreEqual(4, WorkflowModel.ActiveStep(WindowState.Optimizing, true, false, false), "confirm");
+            Assert.AreEqual(5, WorkflowModel.ActiveStep(WindowState.Done, true, true, false), "results");
+            Assert.AreEqual(3, WorkflowModel.ActiveStep(WindowState.Done, true, true, true),
+                "an open dialog reviews planned changes whatever is behind it");
 
             foreach (var key in WorkflowModel.StepLabelKeys)
             {

@@ -50,6 +50,11 @@
     <Compile Include="..\..\Editor\UI\ViewModels\CompatibilityGrouper.cs" />
     <Compile Include="..\..\Editor\UI\ViewModels\WorkflowModel.cs" />
     <Compile Include="..\..\Editor\UI\ViewModels\AvatarSelectionModel.cs" />
+    <Compile Include="..\..\Editor\UI\ViewModels\MemoryReportModel.cs" />
+    <Compile Include="..\..\Editor\UI\ViewModels\StatusModel.cs" />
+    <Compile Include="..\..\Editor\UI\ViewModels\OptimizationDialogModel.cs" />
+    <Compile Include="..\..\Editor\Build\BuildTexturePlanner.cs" />
+    <Compile Include="..\..\Editor\Apply\ApplicationPlanner.cs" />
   </ItemGroup>
 
   <ItemGroup>

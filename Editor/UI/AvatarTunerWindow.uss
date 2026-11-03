@@ -318,3 +318,34 @@
     align-items: center;
     justify-content: center;
 }
+
+/* Optimization configuration dialog: modal overlay + rounded dialog card. */
+.at-dialog-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+}
+
+.at-dialog {
+    border-radius: 8px;
+    border-width: 1px;
+    border-left-width: 3px;
+    flex-shrink: 1;
+}
+
+/* Credit footer: compact, subdued, theme colors come from C#. */
+.at-footer {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top-width: 1px;
+}
+
+.at-footer-text {
+    font-size: 10px;
+}
+
+.at-footer-link {
+    font-size: 10px;
+}

@@ -76,6 +76,36 @@ namespace AvatarTuner.StandaloneTests
             Assert.AreEqual(0, state.DerivedFromGuids.Count, "no source means no provenance, not a guess");
         }
 
+        [Test("run metrics are recorded and survive the manifest round trip")]
+        public static void RunMetricsAreRecorded()
+        {
+            var info = MakeInfo();
+            info.SourceBytesTotal = 249L * 1024L * 1024L;
+            info.OutputBytesTotal = 43L * 1024L * 1024L;
+            info.OptimizedCount = 34;
+            info.SkippedCount = 12;
+            info.ExcludedCount = 3;
+            info.ReviewCount = 34;
+
+            var state = ManifestStateBuilder.Build(
+                MakeReport(), MakeGeneration(true, false), MakeSources(), info);
+
+            Assert.AreEqual(249L * 1024L * 1024L, state.SourceBytesTotal, "source memory is recorded");
+            Assert.AreEqual(43L * 1024L * 1024L, state.OutputBytesTotal, "output memory is recorded");
+            Assert.AreEqual(34, state.OptimizedCount, "optimized count is recorded");
+            Assert.AreEqual(12, state.SkippedCount, "skipped count is recorded");
+            Assert.AreEqual(3, state.ExcludedCount, "excluded count is recorded");
+            Assert.AreEqual(34, state.ReviewCount, "review count is recorded");
+
+            var restored = AvatarOptimizationState.FromDictionary(state.ToDictionary());
+            Assert.AreEqual(state.SourceBytesTotal, restored.SourceBytesTotal, "metrics survive the manifest");
+            Assert.AreEqual(state.OutputBytesTotal, restored.OutputBytesTotal, "metrics survive the manifest");
+            Assert.AreEqual(state.OptimizedCount, restored.OptimizedCount, "metrics survive the manifest");
+            Assert.AreEqual(state.SkippedCount, restored.SkippedCount, "metrics survive the manifest");
+            Assert.AreEqual(state.ExcludedCount, restored.ExcludedCount, "metrics survive the manifest");
+            Assert.AreEqual(state.ReviewCount, restored.ReviewCount, "metrics survive the manifest");
+        }
+
         [Test("invalid arguments are refused")]
         public static void InvalidArgumentsAreRefused()
         {

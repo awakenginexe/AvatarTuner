@@ -79,13 +79,14 @@ namespace AvatarTuner.Editor.ViewModels
         public const long LargeTextureThresholdBytes = 4L * 1024L * 1024L;
 
         /// <summary>
-        /// The dashboard metric cards, in display order. Hero metrics first: total texture
-        /// memory and optimization status carry the most decision weight.
+        /// The dashboard metric cards, in display order: the honest optimization status
+        /// first, then the real scan counts. The memory before/after comparison is built
+        /// from the shared <see cref="MemoryNumbers" /> by the window (and pinned by the
+        /// memory tests), so every page shows the same numbers.
         /// </summary>
         public static List<MetricCard> BuildMetrics(
             AvatarAnalysisReport report,
-            TextureOptimizationPlan plan,
-            OptimizationStatus status)
+            AvatarDisplayStatus status)
         {
             var cards = new List<MetricCard>();
             if (report == null)
@@ -93,30 +94,13 @@ namespace AvatarTuner.Editor.ViewModels
                 return cards;
             }
 
-            var memory = new MetricCard
-            {
-                LabelKey = "ui.label.gpuMemory",
-                Emphasis = MetricEmphasis.Primary,
-                Tone = SemanticTone.Info
-            };
-            if (plan != null)
-            {
-                memory.Value = TextureFormatInfo.FormatBytes(plan.SourceBytesTotal);
-                memory.SubTextKey = "results.basisComputed";
-            }
-            else
-            {
-                memory.ValueKey = "ui.label.notAvailable";
-            }
-
-            cards.Add(memory);
-
             var statusCard = new MetricCard
             {
                 LabelKey = "ui.label.status",
                 Emphasis = MetricEmphasis.Primary,
-                ValueKey = StatusNameKey(status),
-                Tone = StatusTone(status)
+                ValueKey = StatusModel.NameKey(status),
+                SubTextKey = StatusModel.SummaryKey(status),
+                Tone = StatusModel.Tone(status)
             };
             cards.Add(statusCard);
 
@@ -277,30 +261,31 @@ namespace AvatarTuner.Editor.ViewModels
             };
         }
 
-        internal static string StatusNameKey(OptimizationStatus status)
+        /// <summary>
+        /// The display status for a recorded manifest status (Change Tracking shows what
+        /// the manifest records; the display wording stays honest about what exists).
+        /// </summary>
+        internal static AvatarDisplayStatus DisplayStatusOf(OptimizationStatus status)
         {
             switch (status)
             {
-                case OptimizationStatus.Optimized: return "status.optimized.name";
-                case OptimizationStatus.ChangesDetected: return "status.changesDetected.name";
-                case OptimizationStatus.ReoptimizationRequired: return "status.reoptimizationRequired.name";
-                case OptimizationStatus.OptimizationFailed: return "status.optimizationFailed.name";
-                case OptimizationStatus.Unsupported: return "status.unsupported.name";
-                default: return "status.notOptimized.name";
+                case OptimizationStatus.Optimized: return AvatarDisplayStatus.OutputGenerated;
+                case OptimizationStatus.ChangesDetected: return AvatarDisplayStatus.ChangesDetected;
+                case OptimizationStatus.ReoptimizationRequired: return AvatarDisplayStatus.ReoptimizationRequired;
+                case OptimizationStatus.OptimizationFailed: return AvatarDisplayStatus.OptimizationFailed;
+                case OptimizationStatus.Unsupported: return AvatarDisplayStatus.Unsupported;
+                default: return AvatarDisplayStatus.NotOptimized;
             }
+        }
+
+        internal static string StatusNameKey(OptimizationStatus status)
+        {
+            return StatusModel.NameKey(DisplayStatusOf(status));
         }
 
         internal static SemanticTone StatusTone(OptimizationStatus status)
         {
-            switch (status)
-            {
-                case OptimizationStatus.Optimized: return SemanticTone.Success;
-                case OptimizationStatus.ChangesDetected: return SemanticTone.Warning;
-                case OptimizationStatus.ReoptimizationRequired: return SemanticTone.Warning;
-                case OptimizationStatus.OptimizationFailed: return SemanticTone.Error;
-                case OptimizationStatus.Unsupported: return SemanticTone.Error;
-                default: return SemanticTone.Neutral;
-            }
+            return StatusModel.Tone(DisplayStatusOf(status));
         }
     }
 }

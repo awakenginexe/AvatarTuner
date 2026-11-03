@@ -48,6 +48,25 @@ ENTRIES = [
      "ลดหน่วยความจำภาพอย่างเข้มข้น แสดงคำเตือนด้านคุณภาพ และแนะนำให้ตรวจสอบด้วยตนเองอย่างยิ่ง",
      "更激进地降低显存占用。会显示画质警告，强烈建议手动检查。"),
 
+    ("preset.quality-first.impact",
+     "Allowed changes: recompression that should be visually invisible. Resolution is never "
+     "reduced and detail textures are left alone.",
+     "การเปลี่ยนแปลงที่อนุญาต: การบีบอัดใหม่ที่ไม่ควรมองเห็นความแตกต่าง ไม่ลดความละเอียด "
+     "และไม่แตะต้องเทกซ์เจอร์รายละเอียด",
+     "允许的变更：视觉上不可见的再压缩。绝不降低分辨率，细节纹理不受影响。"),
+    ("preset.balanced.impact",
+     "Expected trade-off: resolution drops by one step (never below 1024) and formats may get "
+     "smaller. Differences should be hard to see; review flagged textures before use.",
+     "การแลกเปลี่ยนที่คาดหวัง: ความละเอียดลดลงหนึ่งขั้น (ไม่ต่ำกว่า 1024) และรูปแบบอาจเล็กลง "
+     "ความแตกต่างควรสังเกตยาก ตรวจสอบเทกซ์เจอร์ที่ถูกทำเครื่องหมายก่อนใช้งาน",
+     "预期权衡：分辨率下调一档（不低于 1024），格式可能更小。差异应难以察觉；使用前请检查被标记的纹理。"),
+    ("preset.size-first.impact",
+     "Warning: image quality may visibly drop. Review every affected texture individually "
+     "before using the avatar.",
+     "คำเตือน: คุณภาพของภาพอาจลดลงอย่างเห็นได้ชัด ตรวจสอบเทกซ์เจอร์ที่ได้รับผลกระทบ "
+     "แต่ละรายการก่อนใช้งานโมเดล",
+     "警告：画质可能出现可见下降。请在使用模型前逐一检查受影响的纹理。"),
+
     # ---------------------------------------------------------------- status
     ("status.notOptimized.name", "Not Optimized", "ยังไม่ได้ปรับแต่ง", "未优化"),
     ("status.notOptimized.summary",
@@ -55,11 +74,65 @@ ENTRIES = [
      "โมเดลนี้ยังไม่เคยถูกปรับแต่งด้วย AvatarTuner",
      "此模型从未使用 AvatarTuner 优化过。"),
 
-    ("status.optimized.name", "Optimized", "ปรับแต่งแล้ว", "已优化"),
+    ("status.optimized.name", "Output Generated, Not Applied", "สร้างผลลัพธ์แล้ว ยังไม่นำไปใช้", "已生成输出，尚未应用"),
     ("status.optimized.summary",
-     "Optimized, and every tracked input is unchanged since the last run.",
-     "ปรับแต่งแล้ว และข้อมูลนำเข้าทั้งหมดไม่เปลี่ยนแปลงนับจากรอบล่าสุด",
-     "已优化，且所有追踪的输入自上次运行以来均未发生变化。"),
+     "Optimized output was generated as standalone files. The avatar in the scene is not modified.",
+     "สร้างผลลัพธ์การปรับแต่งเป็นไฟล์แยกต่างหากแล้ว โมเดลในซีนไม่ถูกแก้ไข",
+     "已生成独立的优化输出文件。场景中的模型未被修改。"),
+
+    ("status.analysisComplete.name", "Analysis Complete", "วิเคราะห์เสร็จแล้ว", "分析完成"),
+    ("status.analysisComplete.summary",
+     "The model has been analyzed. No optimization output has been generated yet.",
+     "วิเคราะห์โมเดลแล้ว ยังไม่ได้สร้างผลลัพธ์การปรับแต่ง",
+     "已完成分析。尚未生成优化输出。"),
+
+    ("status.readyToOptimize.name", "Ready to Optimize", "พร้อมปรับแต่ง", "就绪可优化"),
+    ("status.readyToOptimize.summary",
+     "A plan with real changes is ready. Review and confirm the optimization to generate output.",
+     "แผนที่มีการเปลี่ยนแปลงจริงพร้อมแล้ว ตรวจสอบและยืนยันการปรับแต่งเพื่อสร้างผลลัพธ์",
+     "已准备好含实际变更的方案。请审查并确认优化以生成输出。"),
+
+    ("status.outputGeneratedWarnings.name", "Optimized Output Generated with Warnings",
+     "สร้างผลลัพธ์การปรับแต่งแล้วพร้อมคำเตือน", "已生成优化输出，但带警告"),
+    ("status.outputGeneratedWarnings.summary",
+     "Optimized output was generated, but some textures were skipped or need manual review before use.",
+     "สร้างผลลัพธ์การปรับแต่งแล้ว แต่เทกซ์เจอร์บางรายการถูกข้ามหรือต้องตรวจสอบด้วยตนเองก่อนใช้งาน",
+     "已生成优化输出，但部分纹理被跳过或需要在使用前手动检查。"),
+
+    ("status.appliedToAvatar.name", "Optimized and Applied to Avatar", "ปรับแต่งและนำไปใช้กับโมเดลแล้ว", "已优化并应用至模型"),
+    ("status.appliedToAvatar.summary",
+     "The generated outputs were applied to the avatar in the scene.",
+     "นำผลลัพธ์ที่สร้างไปใช้กับโมเดลในซีนแล้ว",
+     "生成的输出已应用至场景中的模型。"),
+
+    ("status.buildTimeEnabled.name", "Build-Time Optimization Enabled", "เปิดใช้การปรับแต่งตอนสร้างแล้ว", "已启用构建期优化"),
+    ("status.buildTimeEnabled.summary",
+     "Generated optimized textures will be applied to the avatar copy during the VRChat build. "
+     "The original model is not modified.",
+     "เทกซ์เจอร์ที่ปรับแต่งจะถูกนำไปใช้กับสำเนาโมเดลตอนสร้าง VRChat โมเดลต้นฉบับไม่ถูกแก้ไข",
+     "生成的优化纹理将在 VRChat 构建时应用到模型副本上。原始模型不会被修改。"),
+
+    ("status.buildTimeDisabled.name", "Build-Time Optimization Disabled", "ปิดการปรับแต่งตอนสร้างแล้ว", "已禁用构建期优化"),
+    ("status.buildTimeDisabled.summary",
+     "Optimized outputs exist but are not applied during the build. The original model is built unchanged.",
+     "มีผลลัพธ์ที่ปรับแต่งแล้วแต่ไม่นำไปใช้ตอนสร้าง โมเดลต้นฉบับถูกสร้างตามเดิม",
+     "优化输出已存在但构建时不应用。将按原始模型进行构建。"),
+
+    ("status.buildTimeFailed.name", "Build-Time Application Failed", "การนำไปใช้ตอนสร้างล้มเหลว", "构建期应用失败"),
+    ("status.buildTimeFailed.summary",
+     "The last build-time application failed. Check the recorded error in the manifest, "
+     "then re-run the optimization or the build.",
+     "การนำไปใช้ตอนสร้างครั้งล่าสุดล้มเหลว ตรวจสอบข้อผิดพลาดที่บันทึกไว้ใน manifest "
+     "แล้วเรียกการปรับแต่งหรือการสร้างอีกครั้ง",
+     "上次构建期应用失败。请检查清单中记录的错误，然后重新运行优化或构建。"),
+
+    ("status.partiallyOptimized.name", "Partially Optimized", "ปรับแต่งบางส่วนแล้ว", "部分优化"),
+    ("status.partiallyOptimized.summary",
+     "Some references could not be safely remapped and keep the original assets. "
+     "They are listed in Optimization Results; review them manually.",
+     "บางการอ้างอิงไม่สามารถจับคู่ใหม่ได้อย่างปลอดภัยและยังใช้ทรัพยากรต้นฉบับ "
+     "รายการอยู่ในหน้าผลการปรับแต่ง โปรดตรวจสอบด้วยตนเอง",
+     "部分引用无法安全重映射，仍使用原始资源。它们已列在优化结果页，请手动检查。"),
 
     ("status.changesDetected.name", "Changes Detected", "ตรวจพบการเปลี่ยนแปลง", "检测到变更"),
     ("status.changesDetected.summary",
@@ -245,7 +318,6 @@ ENTRIES = [
     ("ui.tab.overview", "Overview", "ภาพรวม", "概览"),
     ("ui.tab.textures", "Texture Analysis", "การวิเคราะห์เทกซ์เจอร์", "纹理分析"),
     ("ui.tab.materials", "Materials and Meshes", "วัสดุและเมช", "材质与网格"),
-    ("ui.tab.settings", "Optimization Settings", "การตั้งค่าการปรับแต่ง", "优化设置"),
     ("ui.tab.preview", "Preview Changes", "ดูตัวอย่างการเปลี่ยนแปลง", "预览变更"),
     ("ui.tab.results", "Optimization Results", "ผลการปรับแต่ง", "优化结果"),
     ("ui.tab.tracking", "Change Tracking", "การติดตามการเปลี่ยนแปลง", "变更追踪"),
@@ -255,7 +327,7 @@ ENTRIES = [
     ("ui.section.avatarSelection", "Avatar Selection", "การเลือกโมเดล", "模型选择"),
     ("ui.section.scanSummary", "Scan Summary", "สรุปการสแกน", "扫描摘要"),
     ("ui.section.recommendations", "Recommendations", "คำแนะนำ", "优化建议"),
-    ("ui.section.texturePlan", "Proposed Texture Changes", "การเปลี่ยนแปลงเทกซ์เจอร์ที่เสนอ", "拟进行的纹理变更"),
+    ("ui.section.texturePlan", "Planned Texture Changes", "การเปลี่ยนแปลงเทกซ์เจอร์ที่วางแผนไว้", "计划的纹理变更"),
     ("ui.section.exclusions", "Excluded Textures", "เทกซ์เจอร์ที่ยกเว้น", "排除的纹理"),
     ("ui.section.overrides", "Per-texture Overrides", "การแทนที่รายเทกซ์เจอร์", "单纹理覆盖设置"),
     ("ui.section.output", "Generated Output", "ไฟล์ที่สร้าง", "生成的输出"),
@@ -270,6 +342,7 @@ ENTRIES = [
     # ---------------------------------------------------------------- buttons
     ("ui.button.analyze", "Analyze Avatar", "วิเคราะห์โมเดล", "分析模型"),
     ("ui.button.optimize", "Optimize Avatar", "ปรับแต่งโมเดล", "优化模型"),
+    ("ui.button.confirmOptimize", "Confirm & Optimize", "ยืนยันและปรับแต่ง", "确认并优化"),
     ("ui.button.preview", "Preview Changes", "ดูตัวอย่างการเปลี่ยนแปลง", "预览变更"),
     ("ui.button.cancel", "Cancel", "ยกเลิก", "取消"),
     ("ui.button.refresh", "Refresh", "รีเฟรช", "刷新"),
@@ -355,6 +428,13 @@ ENTRIES = [
     ("ui.label.shader", "Shader", "Shader", "Shader"),
     ("ui.label.usage", "Usage", "การใช้งาน", "用途"),
     ("ui.label.include", "Include", "รวม", "包含"),
+    ("ui.label.sourceMemory", "Source Texture Memory", "หน่วยความจำเทกซ์เจอร์ต้นฉบับ", "源纹理显存"),
+    ("ui.label.currentMemory", "Current Avatar Texture Memory", "หน่วยความจำเทกซ์เจอร์ของโมเดลปัจจุบัน", "当前模型纹理显存"),
+    ("ui.label.outputMemory", "Optimized Output Memory", "หน่วยความจำผลลัพธ์ที่ปรับแต่ง", "优化输出显存"),
+    ("ui.label.potentialSavings", "Potential Savings", "การประหยัดที่เป็นไปได้", "潜在节省量"),
+    ("ui.label.qualityThreshold", "Quality threshold", "เกณฑ์คุณภาพ", "质量阈值"),
+    ("ui.label.forceMaxSize", "Max size", "ขนาดสูงสุด", "分辨率上限"),
+    ("ui.label.forceFormat", "Format override", "บังคับรูปแบบ", "格式覆盖"),
     ("ui.label.detail", "Details", "รายละเอียด", "详情"),
 
     # ---------------------------------------------------------------- states
@@ -373,8 +453,6 @@ ENTRIES = [
     ("ui.state.error.body", "The action did not complete. The details are below.",
      "การดำเนินการไม่เสร็จสมบูรณ์ รายละเอียดอยู่ด้านล่าง",
      "操作未能完成，详情见下方。"),
-    ("ui.state.success.title", "Done", "เสร็จสิ้น", "完成"),
-    ("ui.state.success.body", "The action completed successfully.", "การดำเนินการเสร็จสมบูรณ์", "操作已成功完成。"),
     ("ui.drop.hint", "Drop a model GameObject here", "วาง GameObject โมเดลที่นี่", "将模型 GameObject 拖放到此处"),
     ("ui.drop.invalidType", "That object is not a model GameObject.", "ออบเจ็กต์นั้นไม่ใช่ GameObject โมเดล", "该对象不是模型 GameObject。"),
 
@@ -393,6 +471,18 @@ ENTRIES = [
     ("ui.toggle.followBuildTimeTools",
      "Treat build-time tool components as unconfirmed", "ถือว่าคอมโพเนนต์จากเครื่องมือ build-time ยังไม่ยืนยัน",
      "将构建期工具组件视为未确认"),
+    ("ui.toggle.useOptimizedOnBuild",
+     "Use Optimized Textures During Build", "ใช้เทกซ์เจอร์ที่ปรับแต่งตอนสร้าง", "构建时使用优化纹理"),
+    ("ui.section.buildApplication", "Build-Time Optimization", "การปรับแต่งตอนสร้าง", "构建期优化"),
+    ("ui.footer.madeBy", "Made by", "สร้างโดย", "开发者："),
+    ("ui.section.restore", "Restore", "คืนค่า", "还原"),
+    ("ui.button.restoreOriginal", "Restore Original Textures", "คืนเทกซ์เจอร์ต้นฉบับ", "还原原始纹理"),
+    ("tip.useOptimizedOnBuild",
+     "Applies the generated optimized textures to a copy of the model during the VRChat build "
+     "(via NDMF). The original model, materials and textures are never modified.",
+     "นำเทกซ์เจอร์ที่ปรับแต่งไปใช้กับสำเนาโมเดลตอนสร้าง VRChat (ผ่าน NDMF) "
+     "โมเดล วัสดุ และเทกซ์เจอร์ต้นฉบับไม่ถูกแก้ไข",
+     "通过 NDMF 在 VRChat 构建时将生成的优化纹理应用到模型副本。原始模型、材质与纹理绝不修改。"),
 
     # ---------------------------------------------------------------- tool tips
     ("tip.avatarField", "The model root GameObject to analyze and optimize.",
@@ -458,11 +548,7 @@ ENTRIES = [
     ("dlg.ok", "OK", "ตกลง", "确定"),
     ("dlg.yes", "Yes", "ใช่", "是"),
     ("dlg.no", "No", "ไม่", "否"),
-    ("dlg.optimize.title", "Optimize this avatar?", "ปรับแต่งโมเดลนี้หรือไม่?", "要优化此模型吗？"),
-    ("dlg.optimize.message",
-     "Generated assets will be written to {0}. The original model and its assets are not modified. Continue?",
-     "จะเขียนไฟล์ที่สร้างไปที่ {0} โมเดลต้นฉบับและทรัพยากรของมันจะไม่ถูกแก้ไข ดำเนินการต่อหรือไม่?",
-     "生成的资源将写入 {0}。原始模型及其资源不会被修改。是否继续？"),
+    ("dlg.configure.title", "Configure Optimization", "กำหนดค่าการปรับแต่ง", "配置优化"),
     ("dlg.cleanup.title", "Delete generated files?", "ลบไฟล์ที่สร้างหรือไม่?", "要删除生成的文件吗？"),
     ("dlg.cleanup.message",
      "{0} generated file(s) will be deleted from {1}. Original assets are not affected. Continue?",
@@ -478,6 +564,49 @@ ENTRIES = [
      "{0} generated file(s) already exist and will be replaced. Continue?",
      "มีไฟล์ที่สร้างอยู่แล้ว {0} ไฟล์และจะถูกแทนที่ ดำเนินการต่อหรือไม่?",
      "已有 {0} 个生成文件将被替换。是否继续？"),
+    ("dlg.buildApply.title", "Enable build-time optimization?", "เปิดใช้การปรับแต่งตอนสร้างหรือไม่?", "要启用构建期优化吗？"),
+    ("dlg.buildApply.message",
+     "From the next build on, generated optimized textures will be applied to the avatar copy "
+     "during the VRChat build. The original model and its assets are not modified. Enable?",
+     "นับจากการสร้างครั้งต่อไป เทกซ์เจอร์ที่ปรับแต่งจะถูกนำไปใช้กับสำเนาโมเดลตอนสร้าง VRChat "
+     "โมเดลต้นฉบับและทรัพยากรของมันจะไม่ถูกแก้ไข เปิดใช้หรือไม่?",
+     "从下次构建起，生成的优化纹理将在 VRChat 构建时应用到模型副本。原始模型及其资源不会被修改。是否启用？"),
+    ("dlg.restore.title", "Restore original textures?", "คืนเทกซ์เจอร์ต้นฉบับหรือไม่?", "要还原原始纹理吗？"),
+    ("dlg.restore.message",
+     "The model's material references go back to the original assets. Generated files are kept. "
+     "This change can be undone with Edit > Undo. Continue?",
+     "การอ้างอิงวัสดุของโมเดลจะกลับไปใช้ทรัพยากรต้นฉบับ ไฟล์ที่สร้างจะถูกเก็บไว้ "
+     "สามารถย้อนกลับได้ด้วย Edit > Undo ดำเนินการต่อหรือไม่?",
+     "模型的材质引用将恢复为原始资源。生成的文件会保留。可通过 Edit > Undo 撤销。是否继续？"),
+
+    # ---------------------------------------------------------------- direct scene application
+    ("apply.error.applyFailed",
+     "Applying the optimized materials to the model failed.",
+     "การนำวัสดุที่ปรับแต่งไปใช้กับโมเดลล้มเหลว", "将优化材质应用到模型失败。"),
+    ("apply.warn.animUnresolvable",
+     "Animation reference on '{0}' cannot be safely remapped (the clip or controller is not an "
+     "asset). That reference keeps the original assets.",
+     "การอ้างอิงแอนิเมชันบน '{0}' ไม่สามารถจับคู่ใหม่ได้อย่างปลอดภัย (คลิปหรือตัวควบคุมไม่ใช่ "
+     "ทรัพยากร) การอ้างอิงนั้นยังใช้ทรัพยากรต้นฉบับ",
+     "'{0}' 上的动画引用无法安全重映射（剪辑或控制器不是资产）。该引用将保留原始资源。"),
+    ("apply.warn.sceneOnly",
+     "Direct application requires a scene instance. The selected model is an asset, so outputs "
+     "were generated but not applied.",
+     "การนำไปใช้โดยตรงต้องใช้ instance ในซีน โมเดลที่เลือกเป็นทรัพยากร "
+     "จึงสร้างผลลัพธ์แล้วแต่ไม่นำไปใช้",
+     "直接应用需要场景实例。所选模型是资产，因此已生成输出但未应用。"),
+    ("apply.warn.driftEntry",
+     "Changed reference detected: {0}.", "ตรวจพบการอ้างอิงที่เปลี่ยนแปลง: {0}", "检测到已变更的引用：{0}。"),
+    ("apply.restoreNote",
+     "Restores the original material references on the model. Generated files are kept.",
+     "คืนการอ้างอิงวัสดุต้นฉบับบนโมเดล ไฟล์ที่สร้างจะถูกเก็บไว้",
+     "还原模型上的原始材质引用。生成的文件会保留。"),
+    ("apply.restored", "Original references restored. Generated files were kept.",
+     "คืนการอ้างอิงต้นฉบับแล้ว ไฟล์ที่สร้างถูกเก็บไว้", "已还原原始引用。生成的文件已保留。"),
+    ("apply.info.restoredForAnalysis",
+     "Original references were restored before analyzing, so the scan sees the true source assets.",
+     "คืนการอ้างอิงต้นฉบับก่อนการวิเคราะห์ เพื่อให้การสแกนเห็นทรัพยากรต้นฉบับจริง",
+     "分析前已还原原始引用，使扫描读取到真实的源资源。"),
     ("dlg.error.title", "Error", "ข้อผิดพลาด", "错误"),
 
     # ---------------------------------------------------------------- errors
@@ -691,6 +820,40 @@ ENTRIES = [
      "{0} generated files depend on {1} source assets.",
      "ไฟล์ที่สร้าง {0} ไฟล์ขึ้นกับทรัพยากรต้นฉบับ {1} รายการ",
      "{0} 个生成文件依赖 {1} 个源资源。"),
+    ("results.basisEstimate",
+     "Computed estimate from the planned changes. Nothing is generated until you review and confirm.",
+     "ค่าประมาณที่คำนวณจากการเปลี่ยนแปลงที่วางแผนไว้ จะไม่มีการสร้างไฟล์จนกว่าคุณจะตรวจสอบและยืนยัน",
+     "根据计划变更计算的估算值。在你审查并确认之前不会生成任何内容。"),
+    ("results.basisComputedOutput",
+     "Computed from the really generated output files (planned format and resolution).",
+     "คำนวณจากไฟล์ผลลัพธ์ที่สร้างจริง (รูปแบบและความละเอียดตามแผน)",
+     "基于实际生成的输出文件计算（按计划的格式与分辨率）。"),
+    ("results.outputsStandalone",
+     "The generated outputs at {0} are standalone files. The avatar in the scene still uses the "
+     "original textures; nothing has been applied to it.",
+     "ไฟล์ผลลัพธ์ที่สร้างใน {0} เป็นไฟล์แยกต่างหาก โมเดลในซีนยังใช้เทกซ์เจอร์ต้นฉบับ "
+     "และไม่มีการนำไปใช้กับโมเดล",
+     "{0} 中的生成输出是独立文件。场景中的模型仍使用原始纹理；尚未对其应用任何更改。"),
+    ("results.planExecutedNote",
+     "These planned changes were generated to {0}.",
+     "การเปลี่ยนแปลงที่วางแผนไว้เหล่านี้ถูกสร้างไปยัง {0} แล้ว",
+     "这些计划的变更已生成至 {0}。"),
+    ("results.planDiffersFromRecorded",
+     "This plan is newer than the recorded run; its values are planned estimates, not the recorded output.",
+     "แผนนี้ใหม่กว่ารอบที่บันทึกไว้ ค่าของแผนเป็นค่าที่วางแผนไว้ ไม่ใช่ผลลัพธ์ที่บันทึก",
+     "此方案比已记录的运行更新；其数值为计划估算值，而非已记录的输出。"),
+    ("results.restoredFromManifest",
+     "Results restored from the recorded manifest (last run: {0}).",
+     "กู้คืนผลลัพธ์จาก manifest ที่บันทึกไว้ (รอบล่าสุด: {0})",
+     "已从记录的清单恢复结果（上次运行：{0}）。"),
+    ("results.count.optimized", "Textures optimized: {0}", "เทกซ์เจอร์ที่ปรับแต่ง: {0}", "已优化纹理：{0}"),
+    ("results.count.skipped", "Textures skipped: {0}", "เทกซ์เจอร์ที่ข้าม: {0}", "跳过的纹理：{0}"),
+    ("results.count.excluded", "Textures excluded: {0}", "เทกซ์เจอร์ที่ยกเว้น: {0}", "排除的纹理：{0}"),
+    ("results.count.review", "Textures needing manual review: {0}",
+     "เทกซ์เจอร์ที่ต้องตรวจสอบด้วยตนเอง: {0}", "需手动检查的纹理：{0}"),
+    ("results.perTexture", "Per-texture results", "ผลลัพธ์รายเทกซ์เจอร์", "单个纹理结果"),
+    ("results.noIssues", "No errors or warnings were reported for this run.",
+     "ไม่พบข้อผิดพลาดหรือคำเตือนสำหรับรอบนี้", "本次运行未报告任何错误或警告。"),
     ("results.noResultsYet", "No optimization has been run yet.", "ยังไม่เคยเรียกการปรับแต่ง", "尚未执行过优化。"),
     ("results.texturePlanSummary",
      "{0} textures change, {1} are skipped and {2} are excluded by you.",
@@ -710,7 +873,11 @@ ENTRIES = [
     ("opt.progress", "{0} ({1} of {2})", "{0} ({1} จาก {2})", "{0}（{1} / {2}）"),
     ("opt.cancelled", "Cancelled. Files already written were kept and recorded.",
      "ยกเลิกแล้ว ไฟล์ที่เขียนไว้ถูกเก็บและบันทึก", "已取消。已写入的文件被保留并记录。"),
-    ("opt.done", "Optimization finished.", "การปรับแต่งเสร็จสิ้น", "优化已完成。"),
+    ("opt.done.summary",
+     "Optimization complete: {0} texture(s) generated, {1} saved ({2}). See Optimization Results.",
+     "การปรับแต่งเสร็จสมบูรณ์: สร้างเทกซ์เจอร์ {0} รายการ ประหยัด {1} ({2}) ดูที่ผลการปรับแต่ง",
+     "优化完成：已生成 {0} 个纹理，节省 {1}（{2}）。请查看优化结果。"),
+    ("opt.cleanupDone", "Deleted {0} generated file(s).", "ลบไฟล์ที่สร้าง {0} ไฟล์แล้ว", "已删除 {0} 个生成文件。"),
     ("opt.skippedUnsupported",
      "Skipped {0} unsupported conversions. Each one is listed with its reason.",
      "ข้ามการแปลงที่ไม่รองรับ {0} รายการ แต่ละรายการแสดงพร้อมเหตุผล",
@@ -727,6 +894,7 @@ ENTRIES = [
     ("report.summary", "Summary", "สรุป", "摘要"),
     ("report.details", "Details", "รายละเอียด", "详情"),
     ("report.fileSaved", "Report written to {0}", "เขียนรายงานไปที่ {0}", "报告已写入 {0}"),
+    ("report.copied", "Report copied to the clipboard.", "คัดลอกรายงานไปยังคลิปบอร์ดแล้ว", "报告已复制到剪贴板。"),
 
     # ---------------------------------------------------------------- misc
     ("ui.label.tableEmpty", "No rows", "ไม่มีรายการ", "无条目"),
@@ -737,9 +905,66 @@ ENTRIES = [
     # ---------------------------------------------------------------- workflow & hints
     ("ui.workflow.select", "Select Avatar", "เลือกโมเดล", "选择模型"),
     ("ui.workflow.analyze", "Analyze", "วิเคราะห์", "分析"),
+    ("ui.workflow.configure", "Configure Optimization", "กำหนดค่าการปรับแต่ง", "配置优化"),
     ("ui.workflow.review", "Review Changes", "ตรวจสอบการเปลี่ยนแปลง", "检查变更"),
-    ("ui.workflow.optimize", "Optimize", "ปรับแต่ง", "优化"),
+    ("ui.workflow.confirm", "Confirm Optimization", "ยืนยันการปรับแต่ง", "确认优化"),
     ("ui.workflow.results", "Results", "ผลลัพธ์", "结果"),
+
+    # ---------------------------------------------------------------- build-time application
+    ("build.noOutputs",
+     "No optimized output exists for this model yet.", "ยังไม่มีผลลัพธ์ที่ปรับแต่งสำหรับโมเดลนี้", "此模型尚无优化输出。"),
+    ("build.noManifestEntry",
+     "No recorded optimization entry was found for '{0}' in the manifest.",
+     "ไม่พบรายการการปรับแต่งที่บันทึกไว้สำหรับ '{0}' ใน manifest", "清单中未找到 '{0}' 的已记录优化条目。"),
+    ("build.warn.optimizerConflict",
+     "A known optimizer (AAO / d4rkAvatarOptimizer) was detected on this avatar. Build-time texture "
+     "application was skipped to avoid processing-order conflicts. Disable the optimizer's texture "
+     "handling or verify the build manually.",
+     "ตรวจพบตัวปรับแต่ง (AAO / d4rkAvatarOptimizer) บนโมเดลนี้ ข้ามการนำเทกซ์เจอร์ไปใช้ตอนสร้าง "
+     "เพื่อหลีกเลี่ยงความขัดแย้งของลำดับการประมวลผล ปิดการจัดการเทกซ์เจอร์ของตัวปรับแต่งนั้น "
+     "หรือตรวจสอบการสร้างด้วยตนเอง",
+     "在此模型上检测到已知优化器（AAO / d4rkAvatarOptimizer）。为避免处理顺序冲突，已跳过构建期纹理应用。"
+     "请禁用该优化器的纹理处理或手动验证构建。"),
+    ("build.warn.reoptimizationRequired",
+     "Sources changed since the optimized output was generated. Re-optimize this model before "
+     "build-time application runs again.",
+     "ไฟล์ต้นฉบับเปลี่ยนแปลงหลังจากสร้างผลลัพธ์ที่ปรับแต่งแล้ว "
+     "ปรับแต่งโมเดลนี้ใหม่ก่อนที่การนำไปใช้ตอนสร้างจะทำงานอีกครั้ง",
+     "源资源在生成优化输出后已变更。请重新优化此模型，之后构建期应用才会再次生效。"),
+    ("build.warn.missingGenerated",
+     "The generated output '{1}' for material '{0}' is missing. Re-run the optimization to regenerate it.",
+     "ไม่พบผลลัพธ์ที่สร้าง '{1}' สำหรับวัสดุ '{0}' เรียกการปรับแต่งอีกครั้งเพื่อสร้างใหม่",
+     "材质 '{0}' 的生成输出 '{1}' 缺失。请重新运行优化以重新生成。"),
+    ("build.warn.ambiguousMapping",
+     "More than one optimized output maps to the same source on '{0}' ({1}). The mapping is "
+     "ambiguous and was not applied.",
+     "มีผลลัพธ์ที่ปรับแต่งมากกว่าหนึ่งรายการที่อ้างถึงแหล่งเดียวกันบน '{0}' ({1}) "
+     "การแมปไม่ชัดเจนจึงไม่ถูกนำไปใช้",
+     "'{0}'（{1}）上有多个优化输出映射到同一来源。映射不明确，未应用。"),
+    ("build.warn.animSwapKept",
+     "Material '{0}' is driven by a material-swap animation. Its base slot uses optimized textures; "
+     "animated states keep the original material assets.",
+     "วัสดุ '{0}' ถูกขับเคลื่อนด้วยแอนิเมชันสลับวัสดุ ช่องพื้นฐานใช้เทกซ์เจอร์ที่ปรับแต่ง "
+     "สถานะแอนิเมชันยังใช้วัสดุต้นฉบับ",
+     "材质 '{0}' 由材质切换动画驱动。其基础槽位使用优化纹理；动画状态仍使用原始材质资源。"),
+    ("build.info.unknownTexturesLeft",
+     "{0} texture reference(s) were generated by other build-time tools or at runtime and were left unchanged.",
+     "การอ้างถึงเทกซ์เจอร์ {0} รายการถูกสร้างโดยเครื่องมือตอนสร้างอื่นหรือตอนรันไทม์ และถูกปล่อยไว้ตามเดิม",
+     "{0} 个纹理由其它构建期工具或运行时生成，保持原样未改动。"),
+    ("build.error.noOutputs",
+     "No optimized output exists for this model.", "ไม่มีผลลัพธ์ที่ปรับแต่งสำหรับโมเดลนี้", "此模型没有优化输出。"),
+    ("build.error.partialApplication",
+     "Some required texture replacements could not be applied during the build. Review the warnings above.",
+     "การแทนที่เทกซ์เจอร์ที่จำเป็นบางรายการนำไปใช้ตอนสร้างไม่ได้ ตรวจสอบคำเตือนด้านบน",
+     "构建期间部分必需的纹理替换未能应用。请检查上方警告。"),
+    ("build.error.applyFailed",
+     "Build-time texture application failed.", "การนำเทกซ์เจอร์ไปใช้ตอนสร้างล้มเหลว", "构建期纹理应用失败。"),
+    ("build.warn.ndmfMissing",
+     "Build-time application requires the NDMF package (nadena.dev.ndmf) installed in the project. "
+     "Install NDMF (bundled with Modular Avatar / VRCFury) to enable it.",
+     "การนำไปใช้ตอนสร้างต้องการแพ็กเกจ NDMF (nadena.dev.ndmf) ที่ติดตั้งในโปรเจกต์ "
+     "ติดตั้ง NDMF (รวมอยู่กับ Modular Avatar / VRCFury) เพื่อเปิดใช้งาน",
+     "构建期应用需要在项目中安装 NDMF 包（nadena.dev.ndmf）。请安装 NDMF（随 Modular Avatar / VRCFury 附带）以启用。"),
     ("ui.hint.selectAvatar", "Select a model first to enable this action.",
      "เลือกโมเดลก่อนเพื่อเปิดใช้งานการทำงานนี้", "请先选择模型后再执行此操作。"),
     ("ui.hint.analyzeFirst", "Analyze the avatar to see what can be optimized.",
@@ -752,6 +977,10 @@ ENTRIES = [
      "优化已被兼容性检查结果禁用，请查看兼容性模块。"),
     ("ui.hint.busy", "Another operation is still running.",
      "มีการดำเนินการอื่นกำลังทำงานอยู่", "另有操作正在进行中。"),
+    ("ui.hint.planStale",
+     "The plan was built with older settings. It is rebuilt automatically and can be confirmed once it is current.",
+     "แผนถูกสร้างด้วยการตั้งค่าที่เก่ากว่า แผนจะถูกสร้างใหม่โดยอัตโนมัติ และยืนยันได้เมื่อเป็นข้อมูลล่าสุด",
+     "该方案基于较旧的设置生成。它会自动重新生成，更新后即可确认。"),
 
     # ---------------------------------------------------------------- texture status chips
     ("ui.textureStatus.optimized", "Already optimized", "ปรับแต่งแล้ว", "已优化"),

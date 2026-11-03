@@ -4,6 +4,7 @@
   "displayName": "AvatarTuner",
   "description": "Safe, non-destructive VRChat avatar optimization toolkit for Unity Editor. Dependency-aware avatar scanning, quantifiable texture compression planning, generated-asset (non-destructive) output, persistent change tracking, and a localized (English / Thai / Simplified Chinese) editor UI. Targets VRChat Avatars SDK 3 on Windows PC.",
   "unity": "2022.3",
+  "license": "MIT",
   "type": "tool",
   "keywords": [
     "vrchat",
@@ -16,8 +17,16 @@
     "localization"
   ],
   "author": {
-    "name": "AvatarTuner Project"
+    "name": "Awake Ngine XE",
+    "email": "267649137+awakenginexe@users.noreply.github.com",
+    "url": "https://awakenginexe.com/"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/awakenginexe/AvatarTuner.git"
+  },
+  "documentationUrl": "https://github.com/awakenginexe/AvatarTuner#readme",
+  "changelogUrl": "https://github.com/awakenginexe/AvatarTuner/blob/main/CHANGELOG.md",
   "category": "Tools",
   "hideInEditor": false
 }

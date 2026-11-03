@@ -1,9 +1,12 @@
 // AvatarTuner v1.0.0 — workflow view model (Unity free).
 //
-// The core workflow is: Select Avatar > Analyze > Review Changes > Optimize > Results.
-// This model decides which step the user is on, which single action is the primary button,
-// and which localized reason explains why an action is unavailable. Keeping the rules out
-// of the window means the action hierarchy is unit tested, not eyeballed.
+// The core workflow is: Select Avatar > Analyze > Configure Optimization > Review Changes
+// > Confirm Optimization > Results. Optimize never runs anything directly: it opens the
+// optimization dialog where the preset is configured, the planned changes are reviewed
+// and explicitly confirmed. This model decides which step the user is on, which single
+// action is the primary button, and which localized reason explains why an action is
+// unavailable. Keeping the rules out of the window means the action hierarchy is unit
+// tested, not eyeballed.
 
 using System;
 using AvatarTuner.Editor.UI;
@@ -16,20 +19,20 @@ namespace AvatarTuner.Editor.ViewModels
         SelectAvatar = 0,
         Analyze,
         ReviewChanges,
-        Optimize,
-        Regenerate,
+        ConfigureOptimization,
         ViewResults
     }
 
     public static class WorkflowModel
     {
-        /// <summary>The five breadcrumb steps, in order.</summary>
+        /// <summary>The six breadcrumb steps, in order.</summary>
         public static readonly string[] StepLabelKeys =
         {
             "ui.workflow.select",
             "ui.workflow.analyze",
+            "ui.workflow.configure",
             "ui.workflow.review",
-            "ui.workflow.optimize",
+            "ui.workflow.confirm",
             "ui.workflow.results"
         };
 
@@ -52,7 +55,9 @@ namespace AvatarTuner.Editor.ViewModels
 
             if (WindowFlow.IsBusy(state))
             {
-                return state == WindowState.Optimizing ? PrimaryAction.Optimize : PrimaryAction.Analyze;
+                return state == WindowState.Optimizing
+                    ? PrimaryAction.ConfigureOptimization
+                    : PrimaryAction.Analyze;
             }
 
             if (state == WindowState.Ready)
@@ -70,34 +75,39 @@ namespace AvatarTuner.Editor.ViewModels
                 return PrimaryAction.Analyze;
             }
 
-            return planHasChanges ? PrimaryAction.Optimize : PrimaryAction.ReviewChanges;
+            return planHasChanges ? PrimaryAction.ConfigureOptimization : PrimaryAction.ReviewChanges;
         }
 
         /// <summary>
-        /// Breadcrumb step index (0..4). Select → 0, Analyze → 1, review window → 2,
-        /// optimizing → 3, finished with results → 4.
+        /// Breadcrumb step index (0..5). Select → 0, Analyze → 1, plan ready (configure)
+        /// → 2, the dialog reviewing planned changes → 3, optimizing (confirmed) → 4,
+        /// finished with results → 5.
         /// </summary>
-        public static int ActiveStep(WindowState state, bool hasAvatar, bool hasResults)
+        public static int ActiveStep(WindowState state, bool hasAvatar, bool hasResults, bool dialogOpen)
         {
             if (!hasAvatar || state == WindowState.NoSelection)
             {
                 return 0;
             }
 
+            if (dialogOpen)
+            {
+                return 3;
+            }
+
             switch (state)
             {
                 case WindowState.Ready:
-                    return 1;
                 case WindowState.Analyzing:
                     return 1;
                 case WindowState.Analyzed:
                     return 2;
                 case WindowState.Optimizing:
-                    return 3;
+                    return 4;
                 case WindowState.Done:
-                    return hasResults ? 4 : 2;
+                    return hasResults ? 5 : 2;
                 case WindowState.Error:
-                    return hasResults ? 4 : 1;
+                    return hasResults ? 5 : 1;
                 default:
                     return 0;
             }

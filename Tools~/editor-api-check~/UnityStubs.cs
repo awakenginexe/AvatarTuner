@@ -16,11 +16,15 @@ namespace UnityEngine
     public static class Application
     {
         public static string unityVersion { get { return "2022.3.22f1"; } }
+        public static void OpenURL(string url) { }
     }
 
     public class Object
     {
         public string name { get; set; }
+
+        // Real Unity: Instantiate is a static on UnityEngine.Object.
+        public static T Instantiate<T>(T original) where T : Object { return original; }
     }
 
     // Real Unity: ScriptableObject lives in UnityEngine and EditorWindow derives from it.
@@ -222,6 +226,7 @@ namespace UnityEngine
         public Transform transform { get; set; }
         public bool activeSelf { get; set; }
         public bool activeInHierarchy { get; set; }
+        public UnityEngine.SceneManagement.Scene scene { get; set; }
 
         public T[] GetComponentsInChildren<T>(bool includeInactive) where T : Component
         {
@@ -238,6 +243,7 @@ namespace UnityEngine
         public Shader shader { get; set; }
         public string[] GetTexturePropertyNames() { return Array.Empty<string>(); }
         public Texture GetTexture(string name) { return null; }
+        public void SetTexture(string name, Texture value) { }
     }
 
     public class Mesh : Object
@@ -294,6 +300,13 @@ namespace UnityEngine
     {
         public RuntimeAnimatorController runtimeAnimatorController { get; set; }
     }
+
+    public static class Debug
+    {
+        public static void Log(object message) { }
+        public static void LogWarning(object message) { }
+        public static void LogError(object message) { }
+    }
 }
 
 namespace UnityEngine.UIElements
@@ -341,6 +354,15 @@ namespace UnityEngine.UIElements
     {
     }
 
+    // Real Unity: mouse enter/leave events inherit MouseEventBase<T> -> EventBase.
+    public class MouseEnterEvent : MouseEventBase<MouseEnterEvent>
+    {
+    }
+
+    public class MouseLeaveEvent : MouseEventBase<MouseLeaveEvent>
+    {
+    }
+
     // Real Unity: GeometryChangedEvent : EventBase (oldRect/newRect are properties).
     public class GeometryChangedEvent : EventBase
     {
@@ -380,6 +402,37 @@ namespace UnityEngine.UIElements
         NoWrap = 1
     }
 
+    // Real Unity enums used by IStyle.
+    public enum Position
+    {
+        Relative = 0,
+        Absolute = 1
+    }
+
+    public enum Justify
+    {
+        FlexStart = 0,
+        Center = 1,
+        FlexEnd = 2,
+        SpaceBetween = 3,
+        SpaceAround = 4
+    }
+
+    public enum Align
+    {
+        Auto = 0,
+        FlexStart = 1,
+        Center = 2,
+        FlexEnd = 3,
+        Stretch = 4
+    }
+
+    public enum DisplayStyle
+    {
+        None = 0,
+        Flex = 1
+    }
+
     public class StyleSheet : ScriptableObject
     {
     }
@@ -409,9 +462,26 @@ namespace UnityEngine.UIElements
         public StyleColor borderBottomColor { get; set; }
         public StyleLength width { get; set; }
         public StyleLength minWidth { get; set; }
+        public StyleLength maxWidth { get; set; }
         public StyleLength height { get; set; }
+        public StyleLength maxHeight { get; set; }
         public StyleFloat flexGrow { get; set; }
+        public StyleFloat flexShrink { get; set; }
         public StyleEnum<TextAnchor> unityTextAlign { get; set; }
+
+        // Real Unity layout members (IStyle): positioning, padding, flex alignment, display.
+        public StyleEnum<Position> position { get; set; }
+        public StyleEnum<DisplayStyle> display { get; set; }
+        public StyleLength left { get; set; }
+        public StyleLength right { get; set; }
+        public StyleLength top { get; set; }
+        public StyleLength bottom { get; set; }
+        public StyleLength paddingTop { get; set; }
+        public StyleLength paddingBottom { get; set; }
+        public StyleLength paddingLeft { get; set; }
+        public StyleLength paddingRight { get; set; }
+        public StyleEnum<Justify> justifyContent { get; set; }
+        public StyleEnum<Align> alignItems { get; set; }
     }
 
     public class VisualElement
@@ -433,6 +503,9 @@ namespace UnityEngine.UIElements
         public void EnableInClassList(string className, bool enable) { }
         public bool ClassListContains(string className) { return false; }
         public void SetEnabled(bool enabled) { }
+
+        // Real Unity: canonical full-window stretch (position:absolute + zero offsets).
+        public void StretchToParentSize() { }
 
         // Real Unity: only EventBase-derived events can be registered for, so an IMGUI
         // Event (or anything else invented) cannot sneak into a UI Toolkit callback.
@@ -468,6 +541,11 @@ namespace UnityEngine.UIElements
         public override VisualElement contentContainer { get { return _body; } }
         public string text { get; set; }
         public bool value { get; set; }
+
+        // Real Unity: Foldout implements INotifyValueChanged<bool>.
+        public void RegisterValueChangedCallback(EventCallback<ChangeEvent<bool>> callback)
+        {
+        }
     }
 
     // Real Unity: ChangeEvent<T> : EventBase with previousValue/newValue properties.
@@ -556,6 +634,8 @@ namespace UnityEditor
     {
         public static int GetInt(string key, int defaultValue) { return defaultValue; }
         public static void SetInt(string key, int value) { }
+        public static string GetString(string key, string defaultValue) { return defaultValue; }
+        public static void SetString(string key, string value) { }
     }
 
     public struct GlobalObjectId
@@ -670,6 +750,7 @@ namespace UnityEditor
         public static bool IsValidFolder(string path) { return false; }
         public static void ImportAsset(string path) { }
         public static bool OpenAsset(Object target) { return false; }
+        public static void SaveAssets() { }
         public static Hash128 GetAssetDependencyHash(string path) { return new Hash128(); }
         public static string[] GetDependencies(string pathName, bool recursive) { return Array.Empty<string>(); }
         public static string[] FindAssets(string filter) { return Array.Empty<string>(); }
@@ -796,10 +877,25 @@ namespace UnityEditor
             return Array.Empty<ObjectReferenceKeyframe>();
         }
 
+        // Real Unity: rewrites the curve in place; used on generated clones only.
+        public static void SetObjectReferenceCurve(AnimationClip clip, EditorCurveBinding binding, ObjectReferenceKeyframe[] keyframes)
+        {
+        }
+
         public static EditorCurveBinding[] GetCurveBindings(AnimationClip clip)
         {
             return Array.Empty<EditorCurveBinding>();
         }
+    }
+
+    public static class Undo
+    {
+        public static void RecordObject(Object objectToUndo, string name) { }
+    }
+
+    public static class PrefabUtility
+    {
+        public static void RecordPrefabInstancePropertyModifications(Object targetObject) { }
     }
 }
 
@@ -885,5 +981,91 @@ namespace UnityEditor.PackageManager
         {
             return Array.Empty<PackageInfo>();
         }
+    }
+}
+
+namespace UnityEngine.SceneManagement
+{
+    public struct Scene
+    {
+    }
+}
+
+namespace UnityEditor.SceneManagement
+{
+    using UnityEngine.SceneManagement;
+
+    public static class EditorSceneManager
+    {
+        public static void MarkSceneDirty(Scene scene) { }
+    }
+}
+
+// NDMF (Non-Destructive Modular Framework) API stubs - signatures verified against
+// https://github.com/bdunderscore/ndmf (package nadena.dev.ndmf, Unity 2022.3):
+// ExportsPlugin, PluginBase/Plugin<T>, BuildPhase (class with static fields), and
+// BuildContext.AvatarRootObject / AvatarRootTransform. The fluent Sequence lives in
+// nadena.dev.ndmf.fluent. The real AvatarTuner.Editor.NDMF assembly compiles only when
+// the NDMF package is installed (version define + define constraint); this harness compiles
+// it unconditionally so the integration is type-checked offline.
+namespace nadena.dev.ndmf
+{
+    using System;
+    using UnityEngine;
+    using nadena.dev.ndmf.fluent;
+
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public sealed class ExportsPlugin : Attribute
+    {
+        public Type PluginType { get; }
+        public ExportsPlugin(Type pluginType) { PluginType = pluginType; }
+    }
+
+    // Real NDMF: BuildPhase is a sealed class with static readonly fields, not an enum.
+    public sealed class BuildPhase
+    {
+        public string Name { get; }
+        private BuildPhase(string name) { Name = name; }
+
+        public static readonly BuildPhase FirstChance = new BuildPhase("FirstChance");
+        public static readonly BuildPhase PlatformInit = new BuildPhase("PlatformInit");
+        public static readonly BuildPhase Resolving = new BuildPhase("Resolving");
+        public static readonly BuildPhase Generating = new BuildPhase("Generating");
+        public static readonly BuildPhase Transforming = new BuildPhase("Transforming");
+        public static readonly BuildPhase Optimizing = new BuildPhase("Optimizing");
+        public static readonly BuildPhase PlatformFinish = new BuildPhase("PlatformFinish");
+    }
+
+    public abstract class PluginBase
+    {
+        public abstract string QualifiedName { get; }
+        public abstract string DisplayName { get; }
+    }
+
+    public abstract class Plugin<T> : PluginBase where T : Plugin<T>, new()
+    {
+        protected abstract void Configure();
+        protected Sequence InPhase(BuildPhase phase) { return new Sequence(); }
+    }
+
+    // Real NDMF: AvatarRootObject is the avatar CLONE being built, never the scene avatar.
+    public class BuildContext
+    {
+        public GameObject AvatarRootObject { get; set; }
+        public Transform AvatarRootTransform { get; set; }
+    }
+}
+
+namespace nadena.dev.ndmf.fluent
+{
+    using System;
+
+    // Real NDMF: weak plugin ordering (BeforePlugin/AfterPlugin by qualified name) and
+    // Run(displayName, Action<BuildContext>) for anonymous passes.
+    public sealed class Sequence
+    {
+        public Sequence BeforePlugin(string qualifiedName) { return this; }
+        public Sequence AfterPlugin(string qualifiedName) { return this; }
+        public Sequence Run(string displayName, Action<nadena.dev.ndmf.BuildContext> action) { return this; }
     }
 }

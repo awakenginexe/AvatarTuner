@@ -17,6 +17,7 @@ using System;
 using System.Collections.Generic;
 using AvatarTuner.Core;
 using AvatarTuner.Editor.Analysis;
+using AvatarTuner.Editor.Tracking;
 
 namespace AvatarTuner.Editor.Optimization
 {
@@ -61,6 +62,14 @@ namespace AvatarTuner.Editor.Optimization
         public int ExcludedCount;
         public int UnchangedCount;
 
+        /// <summary>
+        /// Hash of the configuration (preset policy + per-texture overrides) this plan was
+        /// built with. A plan whose token differs from the current configuration is stale:
+        /// it must be rebuilt before anything based on it is executed, and a stale plan is
+        /// never run.
+        /// </summary>
+        public string ConfigHashToken;
+
         public bool HasChanges
         {
             get { return ChangedCount > 0; }
@@ -94,6 +103,7 @@ namespace AvatarTuner.Editor.Optimization
             }
 
             var plan = new TextureOptimizationPlan();
+            plan.ConfigHashToken = ManifestStateBuilder.ConfigHash(policy, overrides);
             var protectedMaterials = ProtectedMaterials(report);
 
             var entries = new List<TextureEntry>(report.Textures);

@@ -13,6 +13,7 @@ using System;
 using System.Collections.Generic;
 using AvatarTuner.Core;
 using AvatarTuner.Editor.Analysis;
+using AvatarTuner.Editor.Apply;
 using AvatarTuner.Editor.Optimization;
 using AvatarTuner.Editor.Tracking;
 using AvatarTuner.Editor.ViewModels;
@@ -55,6 +56,35 @@ namespace AvatarTuner.Editor.UI
         public ChangeReport ChangeStatus;
         public AvatarOptimizationState RecordedState;
 
+        /// <summary>True once a generation run happened in this window session.</summary>
+        public bool RunHappened;
+
+        /// <summary>Whether that run completed successfully (false for fail/cancel).</summary>
+        public bool LastRunSucceeded;
+
+        /// <summary>Whether that run skipped textures or flagged textures for review.</summary>
+        public bool LastRunHasWarnings;
+
+        // ---- direct scene application state (reference-level)
+
+        /// <summary>Reference-level health of the scene application, refreshed on observation.</summary>
+        public ApplicationHealth ApplyHealth = ApplicationHealth.NotApplied;
+
+        /// <summary>Renderer slots whose material reference drifted since application.</summary>
+        public readonly List<string> ApplicationDriftEntries = new List<string>();
+
+        /// <summary>Findings from the last scene application attempt.</summary>
+        public readonly List<Build.PlanFinding> ApplicationFindings = new List<Build.PlanFinding>();
+
+        /// <summary>Texture memory from what the avatar references right now (computed).</summary>
+        public long CurrentTextureBytes;
+
+        /// <summary>True when every currently referenced texture could be valued.</summary>
+        public bool HasCurrentTextureBytes;
+
+        /// <summary>True when the last analysis restored original references first.</summary>
+        public bool LastAnalyzeRestored;
+
         /// <summary>Stable manifest key for the selected avatar (asset GUID or scene id).</summary>
         public string RootKey = string.Empty;
 
@@ -79,6 +109,13 @@ namespace AvatarTuner.Editor.UI
             ChangeStatus = null;
             RecordedState = null;
             RootKey = string.Empty;
+            ResetRunInfo();
+            ApplyHealth = ApplicationHealth.NotApplied;
+            ApplicationDriftEntries.Clear();
+            ApplicationFindings.Clear();
+            HasCurrentTextureBytes = false;
+            CurrentTextureBytes = 0;
+            LastAnalyzeRestored = false;
             ClearError();
 
             State = avatar == null
@@ -191,6 +228,21 @@ namespace AvatarTuner.Editor.UI
             State = WindowFlow.BeginAnalysis();
             try
             {
+                // Analyzing an avatar with applied optimized materials would scan the
+                // generated clones as if they were sources. Restore the recorded originals
+                // first, so the analysis always sees the true source assets.
+                LastAnalyzeRestored = false;
+                if (Avatar != null && RecordedState != null && RecordedState.AppliedToAvatar)
+                {
+                    var restore = SceneTextureApplier.Restore(Avatar, RecordedState);
+                    LastAnalyzeRestored = restore.Success;
+                    string restoreError;
+                    GeneratedAssetStore.SetApplicationState(
+                        RootKey, false, false, string.Empty,
+                        new List<AppliedRendererBinding>(), new List<AppliedMaterialClone>(),
+                        new List<AppliedAnimationBinding>(), out restoreError);
+                }
+
                 var options = new ScanOptions();
                 Report = AvatarScanner.Scan(Avatar, options);
                 if (Report == null || !Report.ScanSucceeded)
@@ -204,6 +256,7 @@ namespace AvatarTuner.Editor.UI
 
                 RootKey = ComputeRootKey(Avatar, Report);
                 Generation = null;
+                ResetRunInfo();
                 RebuildPlan();
                 if (Plan == null)
                 {
@@ -302,10 +355,20 @@ namespace AvatarTuner.Editor.UI
                     progress(0.0f, "opt.phase.plan");
                 }
 
+                // Plan safety: the plan that executes is rebuilt from the CURRENT
+                // configuration right here. A stale plan (built with older settings) is
+                // never executed.
                 RebuildPlan();
                 if (Plan == null)
                 {
                     Fail("error.optimizeFailed", "plan");
+                    State = WindowFlow.AfterOptimization(false);
+                    return false;
+                }
+
+                if (!IsPlanFresh())
+                {
+                    Fail("error.optimizeFailed", "stalePlan");
                     State = WindowFlow.AfterOptimization(false);
                     return false;
                 }
@@ -327,20 +390,65 @@ namespace AvatarTuner.Editor.UI
 
                 Generation = generation;
 
+                // Direct scene application: the selected scene avatar gets the optimized
+                // material clones assigned (source assets stay read-only). The outcome is
+                // recorded in the same manifest write below.
+                SceneApplicationOutcome application = null;
+                if (generation.Succeeded && Avatar != null)
+                {
+                    var outputRoot = generation.OutputFolder ?? string.Empty;
+                    if (outputRoot.EndsWith("/Textures", StringComparison.OrdinalIgnoreCase))
+                    {
+                        outputRoot = outputRoot.Substring(0, outputRoot.Length - "/Textures".Length);
+                    }
+
+                    application = SceneTextureApplier.Apply(Avatar, Report, generation, outputRoot);
+                    ApplicationFindings.Clear();
+                    ApplicationFindings.AddRange(application.Findings);
+                    if (!string.IsNullOrEmpty(application.ErrorKey))
+                    {
+                        ErrorKey = application.ErrorKey;
+                    }
+                }
+
                 // Even a cancelled run keeps and records what it already wrote.
                 var configHash = ConfigHash();
                 var sources = ChangeTrackingService.BuildSnapshot(
                     null, Report, configHash, new UnityFingerprintProvider()).Sources;
+                var numbers = MemoryReportModel.Build(Report, Plan, generation);
                 var info = new OptimizationRunInfo
                 {
                     ConfigHash = configHash,
                     EngineVersion = Application.unityVersion,
                     ToolVersion = GeneratedAssetStore.ToolVersion,
-                    PresetId = PresetCatalog.GetId(Preset)
+                    PresetId = PresetCatalog.GetId(Preset),
+                    SourceBytesTotal = numbers.SourceBytes,
+                    OutputBytesTotal = numbers.OutputBytes,
+                    OptimizedCount = numbers.OptimizedCount,
+                    SkippedCount = numbers.SkippedCount,
+                    ExcludedCount = numbers.ExcludedCount,
+                    ReviewCount = numbers.ReviewCount
                 };
 
                 var state = ManifestStateBuilder.Build(Report, generation, sources, info);
                 state.SourceRootGuid = RootKey;
+                if (ApplicationPlanner.IsVerifiedApplication(application))
+                {
+                    // Verified application only: bindings, clones and the success timestamp
+                    // are recorded only when references verifiably reached the scene avatar.
+                    state.AppliedToAvatar = true;
+                    state.AppliedPartially = application.Partial;
+                    state.AppliedUtc = state.LastAttemptUtc;
+                    state.RendererBindings.AddRange(application.RendererBindings);
+                    state.MaterialClones.AddRange(application.MaterialClones);
+                    state.AnimationBindings.AddRange(application.AnimationBindings);
+                    state.Generated.AddRange(application.ExtraGenerated);
+                }
+                else if (application != null && !string.IsNullOrEmpty(application.ErrorKey))
+                {
+                    // An application failure must not read as an optimized run in the manifest.
+                    ApplicationPlanner.MarkApplicationFailed(state, application.ErrorKey);
+                }
 
                 string manifestError;
                 GeneratedAssetStore.RecordRun(state, out manifestError);
@@ -350,11 +458,16 @@ namespace AvatarTuner.Editor.UI
                 }
 
                 RefreshStatus();
-                var succeeded = generation.Succeeded && string.IsNullOrEmpty(manifestError);
+                var succeeded = generation.Succeeded && string.IsNullOrEmpty(manifestError) &&
+                                (application == null || string.IsNullOrEmpty(application.ErrorKey));
                 if (!succeeded && generation.Cancelled && string.IsNullOrEmpty(ErrorKey))
                 {
                     ErrorKey = "error.cancelled";
                 }
+
+                RunHappened = true;
+                LastRunSucceeded = succeeded;
+                LastRunHasWarnings = RunHasWarnings(generation, Plan);
 
                 State = WindowFlow.AfterOptimization(succeeded);
                 return succeeded;
@@ -369,6 +482,33 @@ namespace AvatarTuner.Editor.UI
 
         // ===================================================================== tracking & cleanup
 
+        /// <summary>
+        /// Restores the recorded original material/controller references on the scene avatar
+        /// (Undo-recorded). Generated files are kept; source assets untouched. Returns an
+        /// error key or null.
+        /// </summary>
+        public string RestoreOriginalTextures()
+        {
+            if (Avatar == null || RecordedState == null || !RecordedState.AppliedToAvatar)
+            {
+                return "build.error.noOutputs";
+            }
+
+            var outcome = SceneTextureApplier.Restore(Avatar, RecordedState);
+            string storeError;
+            GeneratedAssetStore.SetApplicationState(
+                RootKey, false, false, string.Empty,
+                new List<AppliedRendererBinding>(), new List<AppliedMaterialClone>(),
+                new List<AppliedAnimationBinding>(), out storeError);
+            RefreshStatus();
+            if (!string.IsNullOrEmpty(outcome.ErrorKey))
+            {
+                return outcome.ErrorKey;
+            }
+
+            return string.IsNullOrEmpty(storeError) ? null : storeError;
+        }
+
         /// <summary>Refreshes the recorded state and the change report.</summary>
         public void RefreshStatus()
         {
@@ -382,6 +522,68 @@ namespace AvatarTuner.Editor.UI
 
                 RecordedState = load.Manifest == null ? null : load.Manifest.FindAvatar(RootKey);
                 ChangeStatus = ChangeTrackingService.Analyze(RecordedState, Report, ConfigHash());
+
+                // Reference-level application health + current memory from what the avatar
+                // references right now. Gathers scene references only (no asset loads), and
+                // runs on selection / refresh / analysis / optimization - never per frame.
+                ApplyHealth = ApplicationHealth.NotApplied;
+                ApplicationDriftEntries.Clear();
+                HasCurrentTextureBytes = false;
+                CurrentTextureBytes = 0;
+                if (Avatar != null)
+                {
+                    var observedSlots = new List<ObservedSlot>();
+                    var observedTextures = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    SceneTextureApplier.GatherObserved(Avatar, observedSlots, observedTextures);
+
+                    if (RecordedState != null && RecordedState.AppliedToAvatar)
+                    {
+                        ApplyHealth = ApplicationPlanner.Evaluate(
+                            RecordedState, observedSlots, ApplicationDriftEntries);
+                    }
+
+                    if (Plan != null)
+                    {
+                        var sourceBytes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+                        for (var i = 0; i < Plan.Textures.Count; i++)
+                        {
+                            var planned = Plan.Textures[i];
+                            if (planned.Plan != null && !string.IsNullOrEmpty(planned.TextureGuid))
+                            {
+                                sourceBytes[planned.TextureGuid] = planned.Plan.SourceBytes;
+                            }
+                        }
+
+                        var targetBytes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+                        if (Generation != null)
+                        {
+                            for (var i = 0; i < Generation.Generated.Count; i++)
+                            {
+                                var generated = Generation.Generated[i];
+                                if (!string.IsNullOrEmpty(generated.GeneratedGuid))
+                                {
+                                    targetBytes[generated.GeneratedGuid] = generated.PlannedTargetBytes;
+                                }
+                            }
+                        }
+                        else if (RecordedState != null)
+                        {
+                            for (var i = 0; i < RecordedState.Generated.Count; i++)
+                            {
+                                var generated = RecordedState.Generated[i];
+                                if (!string.IsNullOrEmpty(generated.Guid) && generated.TargetBytes > 0)
+                                {
+                                    targetBytes[generated.Guid] = generated.TargetBytes;
+                                }
+                            }
+                        }
+
+                        bool allKnown;
+                        CurrentTextureBytes = ApplicationPlanner.ComputeCurrentBytes(
+                            sourceBytes, targetBytes, observedTextures, out allKnown);
+                        HasCurrentTextureBytes = allKnown;
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -407,6 +609,7 @@ namespace AvatarTuner.Editor.UI
                 }
 
                 Generation = null;
+                ResetRunInfo();
                 RefreshStatus();
                 return outcome;
             }
@@ -430,7 +633,134 @@ namespace AvatarTuner.Editor.UI
             }
         }
 
+        /// <summary>The config token of the current plan (empty when no plan exists).</summary>
+        public string PlanConfigToken
+        {
+            get { return Plan == null ? string.Empty : Plan.ConfigHashToken; }
+        }
+
+        /// <summary>
+        /// True while the current plan was built with the configuration that is current
+        /// right now. A stale plan must be rebuilt before it can be confirmed or executed.
+        /// </summary>
+        public bool IsPlanFresh()
+        {
+            return OptimizationDialogModel.IsPlanFresh(PlanConfigToken, ConfigHash());
+        }
+
+        /// <summary>The honest display status of the working set.</summary>
+        public AvatarDisplayStatus CurrentDisplayStatus()
+        {
+            var live = ChangeStatus != null
+                ? ChangeStatus.Status
+                : (RecordedState != null ? RecordedState.Status : OptimizationStatus.NotOptimized);
+            var baseStatus = StatusModel.Derive(
+                Report != null && Report.ScanSucceeded,
+                Plan != null && Plan.HasChanges,
+                RunHappened,
+                LastRunSucceeded,
+                LastRunHasWarnings,
+                HasRecordedOutputs,
+                live);
+
+            if (RecordedState == null)
+            {
+                return baseStatus;
+            }
+
+            var withBuild = StatusModel.DeriveBuildTime(
+                baseStatus,
+                RecordedState.BuildApplicationConfigured,
+                RecordedState.UseOptimizedTexturesOnBuild,
+                !string.IsNullOrEmpty(RecordedState.LastBuildApplicationError));
+
+            return StatusModel.DeriveApplication(withBuild, ApplyHealth);
+        }
+
+        /// <summary>
+        /// Stores the per-avatar "Use Optimized Textures During Build" consent in the
+        /// manifest. The setting only exists after a valid optimized output exists; it
+        /// never modifies source assets or generated outputs. Returns an error key or null.
+        /// </summary>
+        public string SetBuildApplicationEnabled(bool enabled)
+        {
+            if (!HasRecordedOutputs)
+            {
+                return "build.error.noOutputs";
+            }
+
+            string errorKey;
+            var ok = GeneratedAssetStore.SetBuildApplicationSetting(
+                RootKey, true, enabled, out errorKey);
+            RefreshStatus();
+            return ok ? null : errorKey;
+        }
+
+        /// <summary>
+        /// The shared before/after/savings numbers. Realized numbers (from generated
+        /// outputs or the recorded manifest run) are preferred over plan estimates, so
+        /// every page shows the same values for the same artifact.
+        /// </summary>
+        public MemoryNumbers CurrentMemoryNumbers()
+        {
+            MemoryNumbers numbers;
+            if (Generation != null && Plan != null)
+            {
+                numbers = MemoryReportModel.Build(Report, Plan, Generation);
+            }
+            else if (Plan == null)
+            {
+                numbers = MemoryReportModel.FromRecordedState(RecordedState);
+            }
+            else
+            {
+                // A plan exists but nothing was generated with it yet. When the manifest still
+                // holds the previous run's realized numbers, those stay the headline numbers;
+                // the pending plan's estimate lives in the plan card, labelled as planned.
+                var recorded = MemoryReportModel.FromRecordedState(RecordedState);
+                numbers = recorded.HasOutput ? recorded : MemoryReportModel.Build(Report, Plan, null);
+            }
+
+            // Current memory reflects what the avatar references right now (post-application
+            // or not), computed from references - never presented as a measurement.
+            numbers.HasCurrent = HasCurrentTextureBytes;
+            numbers.CurrentBytes = CurrentTextureBytes;
+            return numbers;
+        }
+
+        /// <summary>The pending plan's estimate (potential, nothing generated yet).</summary>
+        public MemoryNumbers PlanMemoryNumbers()
+        {
+            return MemoryReportModel.Build(Report, Plan, null);
+        }
+
         // ===================================================================== helpers
+
+        private void ResetRunInfo()
+        {
+            RunHappened = false;
+            LastRunSucceeded = false;
+            LastRunHasWarnings = false;
+        }
+
+        /// <summary>
+        /// A completed run with skipped textures or textures flagged for review is a
+        /// success with warnings, not a clean success.
+        /// </summary>
+        internal static bool RunHasWarnings(TextureGenerationResult generation, TextureOptimizationPlan plan)
+        {
+            if (generation == null)
+            {
+                return false;
+            }
+
+            if (generation.SkippedCount > 0 || generation.Findings.Count > 0)
+            {
+                return true;
+            }
+
+            return plan != null && TextureRows.CountNeedingReview(plan) > 0;
+        }
 
         private void Fail(string key, string detail)
         {

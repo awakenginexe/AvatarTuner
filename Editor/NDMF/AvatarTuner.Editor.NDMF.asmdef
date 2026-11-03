@@ -1,0 +1,28 @@
+{
+    "name": "AvatarTuner.Editor.NDMF",
+    "rootNamespace": "AvatarTuner.Editor.NDMF",
+    "references": [
+        "AvatarTuner.Core",
+        "AvatarTuner.Editor",
+        "nadena.dev.ndmf"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "AVATARTUNER_HAS_NDMF"
+    ],
+    "versionDefines": [
+        {
+            "name": "nadena.dev.ndmf",
+            "expression": "",
+            "define": "AVATARTUNER_HAS_NDMF"
+        }
+    ],
+    "noEngineReferences": false
+}

@@ -1,9 +1,33 @@
 # Build output
 bin/
 obj/
+[Oo]bj/
+
+# Unity project folders (this repository is the package itself; these only appear if
+# someone nests the package inside a Unity project or tests locally)
+[Ll]ibrary/
+[Tt]emp/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# Local development notes / agent progress reports (kept on disk, never published)
+PROGRESS.md
+PROGRESS.md.meta
+
+# Generated optimization output and local manifests (per-user, never shared)
+Assets/AvatarTuner-Generated/
+
+# Release build artifacts
+*.unitypackage
+*.unitypackage.sha256
+dist/
+release-notes.md
 
 # IDE / OS noise
 .vs/
+.vscode/
+.idea/
 *.user
+*.suo
 .DS_Store
 Thumbs.db

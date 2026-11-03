@@ -34,6 +34,9 @@
     <Compile Include="..\..\Editor\Tracking\*.cs" />
     <Compile Include="..\..\Editor\UI\*.cs" />
     <Compile Include="..\..\Editor\UI\ViewModels\*.cs" />
+    <Compile Include="..\..\Editor\Build\*.cs" />
+    <Compile Include="..\..\Editor\NDMF\*.cs" />
+    <Compile Include="..\..\Editor\Apply\*.cs" />
   </ItemGroup>
 
 </Project>

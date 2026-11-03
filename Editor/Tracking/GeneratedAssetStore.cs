@@ -106,6 +106,141 @@ namespace AvatarTuner.Editor.Tracking
             }
         }
 
+        // ===================================================================== build application
+
+        /// <summary>
+        /// Stores the direct-scene-application state (bindings for restore + verification).
+        /// Never deletes or rewrites generated outputs.
+        /// </summary>
+        public static bool SetApplicationState(
+            string sourceRootGuid,
+            bool applied,
+            bool partial,
+            string appliedUtc,
+            IList<AppliedRendererBinding> bindings,
+            IList<AppliedMaterialClone> clones,
+            IList<AppliedAnimationBinding> animations,
+            out string errorKey)
+        {
+            errorKey = string.Empty;
+            try
+            {
+                var load = Load();
+                if (!string.IsNullOrEmpty(load.ErrorKey))
+                {
+                    errorKey = load.ErrorKey;
+                    return false;
+                }
+
+                var avatar = load.Manifest == null ? null : load.Manifest.FindAvatar(sourceRootGuid);
+                if (avatar == null)
+                {
+                    errorKey = "build.error.noOutputs";
+                    return false;
+                }
+
+                avatar.AppliedToAvatar = applied;
+                avatar.AppliedPartially = partial;
+                avatar.AppliedUtc = appliedUtc ?? string.Empty;
+                avatar.RendererBindings.Clear();
+                if (bindings != null)
+                {
+                    avatar.RendererBindings.AddRange(bindings);
+                }
+
+                avatar.MaterialClones.Clear();
+                if (clones != null)
+                {
+                    avatar.MaterialClones.AddRange(clones);
+                }
+
+                avatar.AnimationBindings.Clear();
+                if (animations != null)
+                {
+                    avatar.AnimationBindings.AddRange(animations);
+                }
+
+                return Save(load.Manifest, out errorKey);
+            }
+            catch (Exception)
+            {
+                errorKey = "error.unexpected";
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Updates only the per-avatar "Use Optimized Textures During Build" setting.
+        /// Unlike RecordRun this never deletes or rewrites generated outputs. Changing the
+        /// setting clears previous build-application failure evidence.
+        /// </summary>
+        public static bool SetBuildApplicationSetting(
+            string sourceRootGuid, bool configured, bool enabled, out string errorKey)
+        {
+            errorKey = string.Empty;
+            try
+            {
+                var load = Load();
+                if (!string.IsNullOrEmpty(load.ErrorKey))
+                {
+                    errorKey = load.ErrorKey;
+                    return false;
+                }
+
+                var avatar = load.Manifest == null ? null : load.Manifest.FindAvatar(sourceRootGuid);
+                if (avatar == null)
+                {
+                    errorKey = "build.error.noOutputs";
+                    return false;
+                }
+
+                avatar.BuildApplicationConfigured = configured;
+                avatar.UseOptimizedTexturesOnBuild = enabled;
+                avatar.LastBuildApplicationError = string.Empty;
+                return Save(load.Manifest, out errorKey);
+            }
+            catch (Exception)
+            {
+                errorKey = "error.unexpected";
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Records build-time application evidence (timestamp + error key) on the manifest.
+        /// This is evidence of a build application only - a VRChat upload is never observed
+        /// and never claimed.
+        /// </summary>
+        public static bool RecordBuildApplication(
+            string sourceRootGuid, string applicationErrorKey, string utcStamp, out string errorKey)
+        {
+            errorKey = string.Empty;
+            try
+            {
+                var load = Load();
+                if (!string.IsNullOrEmpty(load.ErrorKey))
+                {
+                    errorKey = load.ErrorKey;
+                    return false;
+                }
+
+                var avatar = load.Manifest == null ? null : load.Manifest.FindAvatar(sourceRootGuid);
+                if (avatar == null)
+                {
+                    return false;
+                }
+
+                avatar.LastBuildApplicationUtc = utcStamp ?? string.Empty;
+                avatar.LastBuildApplicationError = applicationErrorKey ?? string.Empty;
+                return Save(load.Manifest, out errorKey);
+            }
+            catch (Exception)
+            {
+                errorKey = "error.unexpected";
+                return false;
+            }
+        }
+
         // ===================================================================== regeneration
 
         /// <summary>

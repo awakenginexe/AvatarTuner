@@ -110,5 +110,98 @@ namespace AvatarTuner.StandaloneTests
             Assert.Contains("DraggedGameObject()", text,
                 "drop validation still resolves the dragged GameObject");
         }
+
+        [Test("closing the optimization dialog (Cancel) touches no asset and no configuration")]
+        public static void CancelDialogTouchesNothing()
+        {
+            var windowPath = Path.Combine(PackageLayout.Root, "Editor", "UI", "AvatarTunerWindow.cs");
+            var text = File.ReadAllText(windowPath, Encoding.UTF8);
+
+            var start = text.IndexOf("private void CloseOptimizeDialog()", StringComparison.Ordinal);
+            var end = text.IndexOf("private void BuildDialog()", StringComparison.Ordinal);
+            Assert.IsTrue(start >= 0 && end > start, "the dialog close handler exists to scan");
+
+            var body = StripLineComments(text.Substring(start, end - start));
+            Assert.IsFalse(body.Contains("_controller."),
+                "Cancel must not mutate controller configuration");
+            Assert.IsFalse(body.Contains("AssetDatabase."),
+                "Cancel must not touch assets");
+            Assert.IsFalse(body.Contains("File.Write"),
+                "Cancel must not write files");
+            Assert.IsFalse(body.Contains("RunOptimization"),
+                "Cancel must never trigger an optimization");
+        }
+
+        [Test("the credit footer wires both links with Unity's URL API and stays in the shell")]
+        public static void FooterWiresBothLinks()
+        {
+            var windowPath = Path.Combine(PackageLayout.Root, "Editor", "UI", "AvatarTunerWindow.cs");
+            var text = File.ReadAllText(windowPath, Encoding.UTF8);
+
+            Assert.Contains("Application.OpenURL", text, "links open through Unity's URL API");
+            Assert.Contains("https://github.com/awakenginexe/AvatarTuner", text,
+                "the GitHub link points at the repository");
+            Assert.Contains("https://awakenginexe.com/", text, "the developer link is configured");
+            Assert.Contains("ui.footer.madeBy", text, "the made-by label is localized");
+            Assert.Contains("Awake Ngine XE", text, "the developer name is never translated");
+
+            var shellStart = text.IndexOf("private void BuildShell()", StringComparison.Ordinal);
+            var shellEnd = text.IndexOf("private void TryLoadStylesheet()", StringComparison.Ordinal);
+            Assert.IsTrue(shellStart >= 0 && shellEnd > shellStart, "the shell exists to scan");
+            var shell = text.Substring(shellStart, shellEnd - shellStart);
+            var footerAt = shell.IndexOf("BuildFooter()", StringComparison.Ordinal);
+            var dialogAt = shell.IndexOf("_dialogArea", StringComparison.Ordinal);
+            Assert.IsTrue(footerAt >= 0, "the footer lives in the window shell (not in any module)");
+            Assert.IsTrue(footerAt < dialogAt,
+                "the dialog overlay is added after the footer, so the dialog draws above it");
+        }
+
+        [Test("README language navigation and referenced images resolve")]
+        public static void ReadmeLinksResolve()
+        {
+            var root = PackageLayout.Root;
+            var readmes = new[] { "README.md", "README.th.md", "README.zh-Hans.md" };
+
+            foreach (var readme in readmes)
+            {
+                var path = Path.Combine(root, readme);
+                Assert.IsTrue(File.Exists(path), readme + " exists");
+                var text = File.ReadAllText(path, Encoding.UTF8);
+
+                // The current language is bold text; the other two are links.
+                foreach (var link in readmes)
+                {
+                    if (link == readme)
+                    {
+                        continue;
+                    }
+
+                    Assert.Contains("(" + link + ")", text,
+                        readme + " links to " + link + " in the language bar");
+                }
+
+                // Every referenced image must exist (the pending Size First capture is a
+                // text note, never a broken image link).
+                var marker = "](docs/images/";
+                var index = 0;
+                while ((index = text.IndexOf(marker, index, StringComparison.Ordinal)) >= 0)
+                {
+                    var start = index + marker.Length;
+                    var end = text.IndexOf(')', start);
+                    var relative = text.Substring(start, end - start);
+                    Assert.IsTrue(File.Exists(Path.Combine(root, "docs", "images", relative)),
+                        readme + " references " + relative + " which must exist on disk");
+                    index = end;
+                }
+            }
+
+            // The three captures referenced today.
+            Assert.IsTrue(File.Exists(Path.Combine(root, "docs", "images", "original.png")),
+                "the original capture exists");
+            Assert.IsTrue(File.Exists(Path.Combine(root, "docs", "images", "quality-first.png")),
+                "the quality-first capture exists");
+            Assert.IsTrue(File.Exists(Path.Combine(root, "docs", "images", "balanced.png")),
+                "the balanced capture exists");
+        }
     }
 }

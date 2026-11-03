@@ -593,7 +593,7 @@ namespace AvatarTuner.Core
         {
             "ui.", "tip.", "dlg.", "error.", "plan.", "change.", "status.", "preset.",
             "analysis.", "scan.", "compat.", "results.", "opt.", "unit.", "translation.",
-            "menu.", "report.", "finding.", "usage."
+            "menu.", "report.", "finding.", "usage.", "build.", "apply."
         };
 
         /// <summary>

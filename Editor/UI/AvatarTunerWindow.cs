@@ -18,6 +18,7 @@ using System.IO;
 using System.Text;
 using AvatarTuner.Core;
 using AvatarTuner.Editor.Analysis;
+using AvatarTuner.Editor.Build;
 using AvatarTuner.Editor.Optimization;
 using AvatarTuner.Editor.Tracking;
 using AvatarTuner.Editor.ViewModels;
@@ -36,7 +37,6 @@ namespace AvatarTuner.Editor.UI
         private const int ModuleCompatibility = 3;
         private const int ModuleTracking = 4;
         private const int ModuleResults = 5;
-        private const int ModuleSettings = 6;
 
         private static readonly string[] ModuleLabelKeys =
         {
@@ -45,8 +45,7 @@ namespace AvatarTuner.Editor.UI
             "ui.tab.materials",
             "compat.title",
             "ui.tab.tracking",
-            "ui.tab.results",
-            "ui.tab.settings"
+            "ui.tab.results"
         };
 
         private readonly AvatarTunerController _controller = new AvatarTunerController();
@@ -67,6 +66,13 @@ namespace AvatarTuner.Editor.UI
         private VisualElement _selectionArea;
         private VisualElement _statusArea;
         private VisualElement _actionArea;
+        private VisualElement _dialogArea;
+
+        /// <summary>True while the optimization configuration dialog is open.</summary>
+        private bool _dialogOpen;
+
+        /// <summary>Advanced foldout state inside the dialog.</summary>
+        private bool _dialogAdvanced;
 
         private string _selectionMessageKey;
         private bool _selectionMessageIsError;
@@ -85,6 +91,8 @@ namespace AvatarTuner.Editor.UI
 
         private void CreateGUI()
         {
+            // Restore the preset the user chose in an earlier editor session.
+            _controller.Preset = PresetMemory.Load(SessionState.GetString);
             BuildShell();
             RefreshView();
         }
@@ -132,6 +140,18 @@ namespace AvatarTuner.Editor.UI
 
             _root.Add(body);
 
+            // The credit footer sits in the window shell (not in any module): it stays
+            // visible on every module switch, never joins the scrollable content, and the
+            // dialog overlay (added after it) always draws above it.
+            _root.Add(BuildFooter());
+
+            // The optimization configuration dialog lives above everything else in the
+            // window; it is rebuilt on every refresh so its preview always shows the plan
+            // for the configuration currently selected in it.
+            _dialogArea = new VisualElement();
+            _dialogArea.AddToClassList("at-dialog-overlay");
+            _root.Add(_dialogArea);
+
             // Responsive navigation: sidebar while wide, wrapping chip bar when narrow, so
             // labels never overlap or get cut off.
             _root.RegisterCallback<GeometryChangedEvent>(OnGeometryChanged);
@@ -163,6 +183,65 @@ namespace AvatarTuner.Editor.UI
             {
                 // Styling is presentation only; the window stays fully usable without it.
             }
+        }
+
+        /// <summary>
+        /// The permanent credit footer (bottom-left, compact). Only the two links are
+        /// clickable; "GitHub" opens the repository, "Awake Ngine XE" opens the developer
+        /// site. The developer name is never translated.
+        /// </summary>
+        private VisualElement BuildFooter()
+        {
+            var footer = new VisualElement();
+            footer.AddToClassList("at-footer");
+            footer.style.borderTopColor = UiTheme.CardBorder;
+
+            var repoRow = new VisualElement();
+            repoRow.AddToClassList("at-row");
+            repoRow.Add(FooterLabel("GitHub"));
+            repoRow.Add(FooterLink("github.com/awakenginexe/AvatarTuner",
+                "https://github.com/awakenginexe/AvatarTuner"));
+            footer.Add(repoRow);
+
+            var madeRow = new VisualElement();
+            madeRow.AddToClassList("at-row");
+            madeRow.Add(FooterLabel(UiStrings.T("ui.footer.madeBy")));
+            madeRow.Add(FooterLink("Awake Ngine XE", "https://awakenginexe.com/"));
+            footer.Add(madeRow);
+
+            return footer;
+        }
+
+        private static Label FooterLabel(string text)
+        {
+            var label = new Label(text);
+            label.AddToClassList("at-footer-text");
+            label.style.color = UiTheme.TextSecondary;
+            return label;
+        }
+
+        private static Button FooterLink(string text, string url)
+        {
+            var link = new Button(() => Application.OpenURL(url)) { text = text };
+            link.AddToClassList("at-footer-link");
+            link.tooltip = url;
+            link.style.backgroundColor = Color.clear;
+            link.style.color = UiTheme.Accent;
+            link.style.borderLeftWidth = 0;
+            link.style.borderRightWidth = 0;
+            link.style.borderTopWidth = 0;
+            link.style.borderBottomWidth = 0;
+            link.style.paddingLeft = 0;
+            link.style.paddingRight = 0;
+            link.style.paddingTop = 0;
+            link.style.paddingBottom = 0;
+            link.style.marginLeft = 4;
+            link.style.marginRight = 0;
+            link.style.marginTop = 0;
+            link.style.marginBottom = 0;
+            link.RegisterCallback<MouseEnterEvent>(evt => link.style.color = UiTheme.Text);
+            link.RegisterCallback<MouseLeaveEvent>(evt => link.style.color = UiTheme.Accent);
+            return link;
         }
 
         private void OnGeometryChanged(GeometryChangedEvent evt)
@@ -280,7 +359,6 @@ namespace AvatarTuner.Editor.UI
                     case ModuleCompatibility: BuildCompatibilityModule(_content); break;
                     case ModuleTracking: BuildTrackingModule(_content); break;
                     case ModuleResults: BuildResultsModule(_content); break;
-                    case ModuleSettings: BuildSettingsModule(_content); break;
                     default: BuildOverviewModule(_content); break;
                 }
             }
@@ -288,6 +366,8 @@ namespace AvatarTuner.Editor.UI
             {
                 _content.Add(Message(UiStrings.T("error.unexpected", ex.Message), UiTheme.Error));
             }
+
+            BuildDialog();
         }
 
         // ===================================================================== navigation
@@ -295,7 +375,7 @@ namespace AvatarTuner.Editor.UI
         private void BuildNav()
         {
             _navItems.Clear();
-            var badgeCounts = new[] { -1, RowCount(ModuleTextures), -1, -1, -1, -1, -1 };
+            var badgeCounts = new[] { -1, RowCount(ModuleTextures), -1, -1, -1, -1 };
 
             for (var i = 0; i < ModuleLabelKeys.Length; i++)
             {
@@ -368,6 +448,11 @@ namespace AvatarTuner.Editor.UI
             var state = _controller.State;
             var hasPlan = _controller.Plan != null;
             var planHasChanges = _controller.Plan != null && _controller.Plan.HasChanges;
+
+            // "Has results" for the workflow means a run finished in THIS session; the
+            // recorded manifest state must not hide the regenerate path for a previously
+            // optimized avatar (re-optimization follows the same configure/review/confirm
+            // dialog).
             var hasResults = _controller.Generation != null;
             var hasAvatar = _controller.Avatar != null;
 
@@ -403,7 +488,7 @@ namespace AvatarTuner.Editor.UI
             row.AddToClassList("at-row");
 
             var active = WorkflowModel.ActiveStep(_controller.State, _controller.Avatar != null,
-                _controller.Generation != null);
+                _controller.Generation != null || _controller.HasRecordedOutputs, _dialogOpen);
 
             for (var i = 0; i < WorkflowModel.StepLabelKeys.Length; i++)
             {
@@ -467,10 +552,13 @@ namespace AvatarTuner.Editor.UI
                     labelKey = "ui.button.preview";
                     onClick = () => { _module = ModuleTextures; RefreshView(); };
                     break;
-                case PrimaryAction.Optimize:
-                case PrimaryAction.Regenerate:
-                    labelKey = action == PrimaryAction.Regenerate ? "ui.button.regenerate" : "ui.button.optimize";
-                    onClick = RunOptimize;
+                case PrimaryAction.ConfigureOptimization:
+                    // Optimize never runs anything: it opens the configuration dialog
+                    // where the preset is reviewed, the plan previewed and confirmed.
+                    labelKey = _controller.HasRecordedOutputs
+                        ? "ui.button.regenerate"
+                        : "ui.button.optimize";
+                    onClick = OpenOptimizeDialog;
                     enabled = optimizeReason == null;
                     reasonKey = optimizeReason;
                     break;
@@ -493,7 +581,7 @@ namespace AvatarTuner.Editor.UI
             {
                 button.tooltip = UiStrings.T("tip.analyzeButton");
             }
-            else if (action == PrimaryAction.Optimize || action == PrimaryAction.Regenerate)
+            else if (action == PrimaryAction.ConfigureOptimization)
             {
                 button.tooltip = UiStrings.T("tip.optimizeButton");
             }
@@ -507,8 +595,7 @@ namespace AvatarTuner.Editor.UI
             {
                 case PrimaryAction.Analyze:
                     return analyzeReason;
-                case PrimaryAction.Optimize:
-                case PrimaryAction.Regenerate:
+                case PrimaryAction.ConfigureOptimization:
                     return optimizeReason;
                 default:
                     return null;
@@ -582,10 +669,9 @@ namespace AvatarTuner.Editor.UI
                     tone = UiTheme.Accent;
                     break;
                 case WindowState.Done:
-                    titleKey = "ui.state.success.title";
-                    bodyKey = "ui.state.success.body";
-                    tone = UiTheme.Success;
-                    break;
+                    // No generic "Done" banner: the single informative operation notice
+                    // and the Optimization Results page ARE the success feedback.
+                    return null;
                 case WindowState.Error:
                     titleKey = "ui.state.error.title";
                     bodyKey = "ui.state.error.body";
@@ -950,14 +1036,11 @@ namespace AvatarTuner.Editor.UI
         private VisualElement BuildDashboardCard()
         {
             var card = Card("ui.section.dashboard");
+            card.Add(BuildMemoryComparison());
+
             var metrics = DashboardModel.BuildMetrics(
                 _controller.Report,
-                _controller.Plan,
-                _controller.ChangeStatus != null
-                    ? _controller.ChangeStatus.Status
-                    : (_controller.RecordedState != null
-                        ? _controller.RecordedState.Status
-                        : OptimizationStatus.NotOptimized));
+                _controller.CurrentDisplayStatus());
 
             var grid = new VisualElement();
             grid.AddToClassList("at-metric-grid");
@@ -968,6 +1051,73 @@ namespace AvatarTuner.Editor.UI
 
             card.Add(grid);
             return card;
+        }
+
+        /// <summary>
+        /// The visual before → after comparison. Every value comes from the shared
+        /// MemoryNumbers, so this block, the metric cards and the results page cannot
+        /// disagree. The basis of each number is stated: computed source memory, output
+        /// memory from generated outputs (or the plan estimate), and a saving that is only
+        /// claimed as realized when outputs really exist.
+        /// </summary>
+        private VisualElement BuildMemoryComparison()
+        {
+            var numbers = _controller.CurrentMemoryNumbers();
+            var trio = MemoryReportModel.FormatTrio(numbers);
+
+            var row = new VisualElement();
+            row.AddToClassList("at-row");
+            row.style.marginTop = 4;
+
+            row.Add(BigValue(UiStrings.T("ui.label.sourceMemory"),
+                numbers.HasSource ? trio.BeforeText : UiStrings.T("ui.label.notAvailable"),
+                UiTheme.TextSecondary));
+            row.Add(BigValue("→", string.Empty, UiTheme.Neutral));
+
+            if (trio.HasAfter)
+            {
+                row.Add(BigValue(UiStrings.T("ui.label.outputMemory"), trio.AfterText, UiTheme.Accent));
+                row.Add(BigValue("→", string.Empty, UiTheme.Neutral));
+
+                var savingLabel = numbers.SavingsArePotential
+                    ? UiStrings.T("ui.label.potentialSavings")
+                    : UiStrings.T("results.gpuMemorySaved");
+                row.Add(BigValue(savingLabel,
+                    trio.SavingText + " (" + trio.SavingPercentText + ")",
+                    numbers.OutputFromGeneratedOutputs && numbers.SavingBytes > 0
+                        ? UiTheme.Success
+                        : UiTheme.Info));
+            }
+
+            // Current memory: computed from what the avatar references right now.
+            if (trio.HasCurrent)
+            {
+                row.Add(BigValue("→", string.Empty, UiTheme.Neutral));
+                row.Add(BigValue(UiStrings.T("ui.label.currentMemory"), trio.CurrentText, UiTheme.Info));
+            }
+
+            var holder = new VisualElement();
+            holder.Add(row);
+
+            holder.Add(Message(UiStrings.T("results.basisComputed"), UiTheme.Neutral));
+            if (numbers.HasOutput)
+            {
+                holder.Add(Message(
+                    UiStrings.T(numbers.OutputFromGeneratedOutputs
+                        ? "results.basisComputedOutput"
+                        : "results.basisEstimate"),
+                    UiTheme.Neutral));
+            }
+
+            // Generated outputs are standalone files: never claim the scene avatar uses
+            // them, and never present a computed number as a measured active-avatar one.
+            if (numbers.OutputFromGeneratedOutputs)
+            {
+                holder.Add(Message(UiStrings.T("results.outputsStandalone",
+                    GeneratedAssetStore.GeneratedRoot), UiTheme.Info));
+            }
+
+            return holder;
         }
 
         private VisualElement Metric(MetricCard metric)
@@ -1037,21 +1187,33 @@ namespace AvatarTuner.Editor.UI
                 plan.UnchangedCount.ToString(CultureInfo.InvariantCulture),
                 plan.ExcludedCount.ToString(CultureInfo.InvariantCulture))));
 
+            // The plan's own numbers, always labelled as the planned estimate - whether or
+            // not a run already executed them. Realized numbers live in the dashboard
+            // comparison and on the results page.
+            var numbers = _controller.PlanMemoryNumbers();
+            var trio = MemoryReportModel.FormatTrio(numbers);
             var savings = new VisualElement();
             savings.AddToClassList("at-row");
             savings.style.marginTop = 4;
-            savings.Add(BigValue(UiStrings.T("results.gpuMemoryBefore"),
-                TextureFormatInfo.FormatBytes(plan.SourceBytesTotal), UiTheme.TextSecondary));
+            savings.Add(BigValue(UiStrings.T("ui.label.sourceMemory"), trio.BeforeText, UiTheme.TextSecondary));
             savings.Add(BigValue("→", string.Empty, UiTheme.Neutral));
-            savings.Add(BigValue(UiStrings.T("results.gpuMemoryAfter"),
-                TextureFormatInfo.FormatBytes(plan.TargetBytesTotal), UiTheme.Accent));
-            savings.Add(BigValue(UiStrings.T("results.gpuMemorySaved"),
-                TextureFormatInfo.FormatBytes(plan.SavingBytes) + " (" +
-                plan.SavingPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%)",
-                plan.SavingBytes > 0 ? UiTheme.Success : UiTheme.TextSecondary));
+            savings.Add(BigValue(UiStrings.T("ui.label.outputMemory"), trio.AfterText, UiTheme.Accent));
+            savings.Add(BigValue("→", string.Empty, UiTheme.Neutral));
+            savings.Add(BigValue(UiStrings.T("ui.label.potentialSavings"),
+                trio.SavingText + " (" + trio.SavingPercentText + ")", UiTheme.Info));
             card.Add(savings);
 
-            card.Add(Message(UiStrings.T("results.basisComputed"), UiTheme.Neutral));
+            card.Add(Message(UiStrings.T("results.basisEstimate"), UiTheme.Neutral));
+            if (_controller.Generation != null)
+            {
+                card.Add(Message(UiStrings.T("results.planExecutedNote",
+                    _controller.Generation.OutputFolder ?? string.Empty), UiTheme.Info));
+            }
+            else if (_controller.HasRecordedOutputs && _controller.RecordedState != null)
+            {
+                card.Add(Message(UiStrings.T("results.planDiffersFromRecorded"), UiTheme.Info));
+            }
+
             return card;
         }
 
@@ -1582,104 +1744,484 @@ namespace AvatarTuner.Editor.UI
 
         // ===================================================================== module: results
 
+        /// <summary>
+        /// The authoritative view of a COMPLETED optimization. Planned changes, generated
+        /// output and measured facts are clearly distinguished; everything memory-related
+        /// comes from the shared MemoryNumbers so this page and the Overview agree.
+        /// </summary>
         private void BuildResultsModule(VisualElement container)
         {
             var generation = _controller.Generation;
-            var card = Card("ui.section.output");
+            var recorded = _controller.RecordedState;
+            var restored = generation == null;
 
-            if (generation == null)
+            if (generation == null && (recorded == null || recorded.Generated.Count == 0))
             {
-                card.Add(Message(UiStrings.T("results.noResultsYet"), UiTheme.Info));
-                container.Add(card);
+                var empty = Card("ui.section.output");
+                empty.Add(Message(UiStrings.T("results.noResultsYet"), UiTheme.Info));
+                container.Add(empty);
                 return;
             }
 
-            var plan = _controller.Plan;
-            var row = new VisualElement();
-            row.AddToClassList("at-row");
-            if (plan != null)
+            var numbers = _controller.CurrentMemoryNumbers();
+            var trio = MemoryReportModel.FormatTrio(numbers);
+            var status = _controller.CurrentDisplayStatus();
+
+            var card = Card("ui.section.output");
+
+            // ---- honest status of the output set
+            var statusRow = new VisualElement();
+            statusRow.AddToClassList("at-insight");
+            statusRow.Add(Dot(UiTheme.ForTone(StatusModel.Tone(status))));
+            var statusCol = new VisualElement();
+            statusCol.AddToClassList("at-col");
+            var statusName = new Label(UiStrings.T(StatusModel.NameKey(status)));
+            statusName.AddToClassList("at-text-strong");
+            statusCol.Add(statusName);
+            var statusSummary = new Label(UiStrings.T(StatusModel.SummaryKey(status)));
+            statusSummary.AddToClassList("at-text-secondary");
+            statusSummary.style.color = UiTheme.TextSecondary;
+            statusCol.Add(statusSummary);
+            statusRow.Add(statusCol);
+            card.Add(statusRow);
+
+            if (restored)
             {
-                row.Add(BigValue(UiStrings.T("results.gpuMemoryBefore"),
-                    TextureFormatInfo.FormatBytes(plan.SourceBytesTotal), UiTheme.TextSecondary));
-                row.Add(BigValue("→", string.Empty, UiTheme.Neutral));
-                row.Add(BigValue(UiStrings.T("results.gpuMemoryAfter"),
-                    TextureFormatInfo.FormatBytes(plan.TargetBytesTotal), UiTheme.Accent));
-                row.Add(BigValue(UiStrings.T("results.gpuMemorySaved"),
-                    TextureFormatInfo.FormatBytes(plan.SavingBytes),
-                    plan.SavingBytes > 0 ? UiTheme.Success : UiTheme.TextSecondary));
+                card.Add(Message(UiStrings.T("results.restoredFromManifest",
+                    string.IsNullOrEmpty(recorded.LastSuccessUtc)
+                        ? UiStrings.T("ui.label.notAvailable")
+                        : recorded.LastSuccessUtc), UiTheme.Info));
             }
 
+            // ---- before → after → saved, from the shared numbers
+            var row = new VisualElement();
+            row.AddToClassList("at-row");
+            row.Add(BigValue(UiStrings.T("ui.label.sourceMemory"), trio.BeforeText, UiTheme.TextSecondary));
+            row.Add(BigValue("→", string.Empty, UiTheme.Neutral));
+            row.Add(BigValue(UiStrings.T("ui.label.outputMemory"), trio.AfterText, UiTheme.Accent));
+            row.Add(BigValue("→", string.Empty, UiTheme.Neutral));
+            row.Add(BigValue(UiStrings.T("results.gpuMemorySaved"),
+                trio.SavingText + " (" + trio.SavingPercentText + ")",
+                numbers.SavingBytes > 0 ? UiTheme.Success : UiTheme.TextSecondary));
             card.Add(row);
 
-            long diskBefore = 0;
-            if (plan != null && _controller.Report != null)
+            card.Add(Message(UiStrings.T("results.basisComputed"), UiTheme.Neutral));
+            card.Add(Message(UiStrings.T(numbers.OutputFromGeneratedOutputs
+                ? "results.basisComputedOutput"
+                : "results.basisEstimate"), UiTheme.Neutral));
+            card.Add(Message(UiStrings.T("results.outputsStandalone",
+                GeneratedAssetStore.GeneratedRoot), UiTheme.Info));
+            card.Add(Message(UiStrings.T("results.disclaimer"), UiTheme.Neutral));
+
+            // ---- counts of the same run
+            var counts = new VisualElement();
+            counts.AddToClassList("at-row");
+            counts.style.marginTop = 6;
+            counts.Add(Chip(UiStrings.T("results.count.optimized",
+                numbers.OptimizedCount.ToString(CultureInfo.InvariantCulture)), SemanticTone.Success));
+            counts.Add(Chip(UiStrings.T("results.count.skipped",
+                numbers.SkippedCount.ToString(CultureInfo.InvariantCulture)),
+                numbers.SkippedCount > 0 ? SemanticTone.Warning : SemanticTone.Neutral));
+            counts.Add(Chip(UiStrings.T("results.count.excluded",
+                numbers.ExcludedCount.ToString(CultureInfo.InvariantCulture)), SemanticTone.Neutral));
+            counts.Add(Chip(UiStrings.T("results.count.review",
+                numbers.ReviewCount.ToString(CultureInfo.InvariantCulture)),
+                numbers.ReviewCount > 0 ? SemanticTone.Warning : SemanticTone.Neutral));
+            card.Add(counts);
+
+            // ---- measured facts (really written files), clearly labelled as measured
+            if (generation != null)
             {
-                for (var i = 0; i < plan.Textures.Count; i++)
+                long diskBefore = 0;
+                if (_controller.Report != null && _controller.Plan != null)
                 {
-                    var entry = _controller.Report.FindTexture(plan.Textures[i].TextureGuid);
-                    if (entry != null)
+                    for (var i = 0; i < _controller.Plan.Textures.Count; i++)
                     {
-                        diskBefore += entry.SourceFileSizeBytes;
+                        var entry = _controller.Report.FindTexture(_controller.Plan.Textures[i].TextureGuid);
+                        if (entry != null)
+                        {
+                            diskBefore += entry.SourceFileSizeBytes;
+                        }
                     }
+                }
+
+                long diskAfter = 0;
+                for (var i = 0; i < generation.Generated.Count; i++)
+                {
+                    diskAfter += generation.Generated[i].GeneratedFileSizeBytes;
+                }
+
+                var diskRow = new VisualElement();
+                diskRow.AddToClassList("at-row");
+                diskRow.Add(BigValue(UiStrings.T("results.diskBefore"),
+                    TextureFormatInfo.FormatBytes(diskBefore), UiTheme.TextSecondary));
+                diskRow.Add(BigValue("→", string.Empty, UiTheme.Neutral));
+                diskRow.Add(BigValue(UiStrings.T("results.diskAfter"),
+                    TextureFormatInfo.FormatBytes(diskAfter), UiTheme.Text));
+                diskRow.Add(Chip(UiStrings.T("ui.label.measured"), SemanticTone.Success));
+                card.Add(diskRow);
+            }
+
+            card.Add(DetailRow("ui.label.outputFolder", GeneratedAssetStore.GeneratedRoot));
+
+            // ---- errors and warnings of the run / compatibility
+            var issues = Card(null);
+            var issueCount = 0;
+            if (generation != null)
+            {
+                for (var i = 0; i < generation.Findings.Count; i++)
+                {
+                    issues.Add(Message(UiStrings.T(
+                        generation.Findings[i].MessageKey, generation.Findings[i].Args.ToArray()), UiTheme.Warning));
+                    issueCount++;
                 }
             }
 
-            long diskAfter = 0;
-            for (var i = 0; i < generation.Generated.Count; i++)
+            if (numbers.SkippedCount > 0)
             {
-                diskAfter += generation.Generated[i].GeneratedFileSizeBytes;
+                issues.Add(Message(UiStrings.T("opt.skippedUnsupported",
+                    numbers.SkippedCount.ToString(CultureInfo.InvariantCulture)), UiTheme.Warning));
+                issueCount++;
             }
 
-            var diskRow = new VisualElement();
-            diskRow.AddToClassList("at-row");
-            diskRow.Add(BigValue(UiStrings.T("results.diskBefore"),
-                TextureFormatInfo.FormatBytes(diskBefore), UiTheme.TextSecondary));
-            diskRow.Add(BigValue("→", string.Empty, UiTheme.Neutral));
-            diskRow.Add(BigValue(UiStrings.T("results.diskAfter"),
-                TextureFormatInfo.FormatBytes(diskAfter), UiTheme.Text));
-            diskRow.Add(Chip(UiStrings.T("ui.label.measured"), SemanticTone.Success));
-            card.Add(diskRow);
-
-            card.Add(Message(UiStrings.T("results.generatedDependencies",
-                generation.Generated.Count.ToString(CultureInfo.InvariantCulture),
-                generation.Generated.Count.ToString(CultureInfo.InvariantCulture)), UiTheme.Neutral));
-            card.Add(Message(UiStrings.T("results.basisComputed"), UiTheme.Neutral));
-            card.Add(Message(UiStrings.T("results.disclaimer"), UiTheme.Neutral));
-
-            if (generation.SkippedCount > 0)
+            if (_controller.Report != null && _controller.Report.Compatibility != null)
             {
-                card.Add(Message(UiStrings.T("opt.skippedUnsupported",
-                    generation.SkippedCount.ToString(CultureInfo.InvariantCulture)), UiTheme.Warning));
+                for (var i = 0; i < _controller.Report.Compatibility.Blockers.Count; i++)
+                {
+                    issues.Add(Message(UiStrings.T(
+                        _controller.Report.Compatibility.Blockers[i].MessageKey,
+                        _controller.Report.Compatibility.Blockers[i].Args.ToArray()), UiTheme.Error));
+                    issueCount++;
+                }
+
+                for (var i = 0; i < _controller.Report.Compatibility.Warnings.Count; i++)
+                {
+                    issues.Add(Message(UiStrings.T(
+                        _controller.Report.Compatibility.Warnings[i].MessageKey,
+                        _controller.Report.Compatibility.Warnings[i].Args.ToArray()), UiTheme.Warning));
+                    issueCount++;
+                }
             }
 
-            card.Add(DetailRow("ui.label.outputFolder", generation.OutputFolder ?? string.Empty));
+            for (var i = 0; i < _controller.ApplicationFindings.Count; i++)
+            {
+                var finding = _controller.ApplicationFindings[i];
+                issues.Add(Message(UiStrings.T(finding.MessageKey, finding.Args.ToArray()), UiTheme.Warning));
+                issueCount++;
+            }
+
+            for (var i = 0; i < _controller.ApplicationDriftEntries.Count; i++)
+            {
+                issues.Add(Message(
+                    UiStrings.T("apply.warn.driftEntry", _controller.ApplicationDriftEntries[i]),
+                    UiTheme.Warning));
+                issueCount++;
+            }
+
+            if (issueCount == 0)
+            {
+                issues.Add(Message(UiStrings.T("results.noIssues"), UiTheme.Success));
+            }
+
+            container.Add(card);
+            if (_controller.HasRecordedOutputs)
+            {
+                container.Add(BuildBuildApplicationCard());
+            }
+
+            if (_controller.RecordedState != null && _controller.RecordedState.AppliedToAvatar)
+            {
+                container.Add(BuildRestoreCard());
+            }
+
+            container.Add(issues);
+
+            // ---- the entry point into individual texture results
+            if (generation != null && generation.Generated.Count > 0)
+            {
+                container.Add(BuildPerTextureResults(generation));
+            }
 
             var buttons = new VisualElement();
             buttons.AddToClassList("at-row");
             buttons.Add(SecondaryButton("ui.button.openOutputFolder",
                 () => EditorUtility.RevealInFinder(GeneratedAssetStore.GeneratedRoot)));
+            buttons.Add(SecondaryButton("ui.button.viewManifest", OpenManifest));
             buttons.Add(SecondaryButton("ui.button.exportReport", ExportReport));
-            card.Add(buttons);
-
-            container.Add(card);
+            container.Add(buttons);
         }
 
-        // ===================================================================== module: settings
-
-        private void BuildSettingsModule(VisualElement container)
+        /// <summary>
+        /// The per-avatar "Use Optimized Textures During Build" consent. Only shown after a
+        /// valid optimized output exists; enabling requires an explicit confirmation. The
+        /// toggle writes a manifest setting only - no source or generated asset changes.
+        /// </summary>
+        private VisualElement BuildBuildApplicationCard()
         {
-            container.Add(BuildPresetCard());
-            container.Add(BuildOverrideCard());
-            container.Add(BuildPreferencesCard());
+            var card = Card("ui.section.buildApplication");
+            var recorded = _controller.RecordedState;
+            if (recorded == null)
+            {
+                return card;
+            }
+
+            if (!BuildTextureApplier.IsBuildIntegrationAvailable())
+            {
+                card.Add(Message(UiStrings.T("build.warn.ndmfMissing"), UiTheme.Warning));
+            }
+
+            var toggle = new Toggle(UiStrings.T("ui.toggle.useOptimizedOnBuild"));
+            toggle.value = recorded.BuildApplicationConfigured && recorded.UseOptimizedTexturesOnBuild;
+            toggle.tooltip = UiStrings.T("tip.useOptimizedOnBuild");
+            toggle.SetEnabled(WindowFlow.CanEditSettings(_controller.State));
+            toggle.RegisterValueChangedCallback(evt =>
+            {
+                if (evt.newValue)
+                {
+                    // Explicit consent is required before enabling build-time application.
+                    if (EditorUtility.DisplayDialog(
+                            UiStrings.T("dlg.buildApply.title"),
+                            UiStrings.T("dlg.buildApply.message"),
+                            UiStrings.T("dlg.yes"),
+                            UiStrings.T("dlg.no")))
+                    {
+                        var error = _controller.SetBuildApplicationEnabled(true);
+                        if (error != null)
+                        {
+                            _controller.ErrorKey = error;
+                        }
+                    }
+
+                    RefreshView();
+                    return;
+                }
+
+                _controller.SetBuildApplicationEnabled(false);
+                RefreshView();
+            });
+            card.Add(toggle);
+
+            var state = _controller.CurrentDisplayStatus();
+            card.Add(Message(UiStrings.T(StatusModel.SummaryKey(state)),
+                UiTheme.ForTone(StatusModel.Tone(state))));
+            return card;
         }
 
-        private VisualElement BuildPresetCard()
+        /// <summary>Restore the original material references (Undo-recorded; files kept).</summary>
+        private VisualElement BuildRestoreCard()
+        {
+            var card = Card("ui.section.restore");
+            card.Add(Message(UiStrings.T("apply.restoreNote"), UiTheme.Neutral));
+
+            var button = new Button(RunRestore) { text = UiStrings.T("ui.button.restoreOriginal") };
+            button.AddToClassList("at-danger-btn");
+            button.style.backgroundColor = UiTheme.Warning;
+            button.style.color = UiTheme.TextOnAccent;
+            button.SetEnabled(WindowFlow.CanEditSettings(_controller.State));
+            card.Add(button);
+            return card;
+        }
+
+        private void RunRestore()
+        {
+            ClearNotice();
+            if (!EditorUtility.DisplayDialog(
+                    UiStrings.T("dlg.restore.title"),
+                    UiStrings.T("dlg.restore.message"),
+                    UiStrings.T("dlg.yes"),
+                    UiStrings.T("dlg.no")))
+            {
+                return;
+            }
+
+            var error = _controller.RestoreOriginalTextures();
+            if (error != null)
+            {
+                _controller.ErrorKey = error;
+            }
+            else
+            {
+                ShowNotice("apply.restored");
+            }
+
+            RefreshView();
+        }
+
+        /// <summary>Per-texture results of the run: source → generated output, with pings.</summary>
+        private VisualElement BuildPerTextureResults(TextureGenerationResult generation)
+        {
+            var card = Card("results.perTexture");
+            var shown = 0;
+            for (var i = 0; i < generation.Generated.Count; i++)
+            {
+                if (shown >= 200)
+                {
+                    card.Add(Line(UiStrings.T("ui.label.moreItems",
+                        (generation.Generated.Count - shown).ToString(CultureInfo.InvariantCulture))));
+                    break;
+                }
+
+                var asset = generation.Generated[i];
+                var row = new VisualElement();
+                row.AddToClassList("at-row");
+                row.Add(Cell("at-col-name", asset.SourcePath ?? string.Empty, UiTheme.TextSecondary));
+                row.Add(Cell("at-col-w110", TextureFormatInfo.FormatBytes(asset.PlannedTargetBytes), UiTheme.Text));
+
+                var sourcePath = asset.SourcePath;
+                var generatedPath = asset.GeneratedPath;
+                var sourcePing = new Button(() => PingPath(sourcePath)) { text = UiStrings.T("ui.button.ping") };
+                sourcePing.AddToClassList("at-btn");
+                sourcePing.style.backgroundColor = UiTheme.ChipBackground;
+                sourcePing.style.color = UiTheme.Text;
+                row.Add(sourcePing);
+
+                var generatedPing = new Button(() => PingPath(generatedPath))
+                {
+                    text = UiStrings.T("ui.label.generatedAsset")
+                };
+                generatedPing.AddToClassList("at-btn");
+                generatedPing.style.backgroundColor = UiTheme.ChipBackground;
+                generatedPing.style.color = UiTheme.Text;
+                generatedPing.tooltip = generatedPath ?? string.Empty;
+                row.Add(generatedPing);
+
+                card.Add(row);
+                shown++;
+            }
+
+            return card;
+        }
+
+        // ===================================================================== optimization dialog
+
+        /// <summary>
+        /// Optimize never runs anything: it opens this configuration dialog where the
+        /// preset is chosen, the planned changes are reviewed, and only the explicit
+        /// Confirm button generates output. Cancel closes the dialog and touches nothing.
+        /// </summary>
+        private void OpenOptimizeDialog()
+        {
+            _dialogOpen = true;
+            _dialogAdvanced = false;
+            ClearNotice();
+            RefreshView();
+        }
+
+        private void CloseOptimizeDialog()
+        {
+            // Cancel: closes the dialog only. No source asset, no generated asset and no
+            // manifest entry is created, modified or deleted by cancelling.
+            _dialogOpen = false;
+            RefreshView();
+        }
+
+        private void BuildDialog()
+        {
+            _dialogArea.Clear();
+
+            // The overlay covers the whole window while the dialog is open and is display:none
+            // while closed, so it can never block the UI behind it. StretchToParentSize() is
+            // the canonical full-window stretch; the explicit offsets stay as a fallback.
+            _dialogArea.StretchToParentSize();
+            _dialogArea.style.position = Position.Absolute;
+            _dialogArea.style.left = 0;
+            _dialogArea.style.right = 0;
+            _dialogArea.style.top = 0;
+            _dialogArea.style.bottom = 0;
+            _dialogArea.style.display = _dialogOpen ? DisplayStyle.Flex : DisplayStyle.None;
+
+            // Integration guard: building the dialog must never fail silently. A failure
+            // becomes a visible message instead of a dialog that mysteriously does not open.
+            try
+            {
+                if (_dialogOpen)
+                {
+                    BuildDialogBody();
+                }
+            }
+            catch (Exception ex)
+            {
+                _dialogArea.style.backgroundColor = new Color(0f, 0f, 0f, 0.35f);
+                _dialogArea.style.justifyContent = Justify.Center;
+                _dialogArea.style.alignItems = Align.Center;
+                _dialogArea.style.paddingTop = 18;
+                _dialogArea.style.paddingBottom = 18;
+                _dialogArea.style.paddingLeft = 12;
+                _dialogArea.style.paddingRight = 12;
+                _dialogArea.Add(Message(UiStrings.T("error.unexpected", ex.Message), UiTheme.Error));
+            }
+        }
+
+        private void BuildDialogBody()
+        {
+            _dialogArea.style.backgroundColor = new Color(0f, 0f, 0f, 0.35f);
+            _dialogArea.style.justifyContent = Justify.Center;
+            _dialogArea.style.alignItems = Align.Center;
+            _dialogArea.style.paddingTop = 18;
+            _dialogArea.style.paddingBottom = 18;
+            _dialogArea.style.paddingLeft = 12;
+            _dialogArea.style.paddingRight = 12;
+
+            var dialog = new VisualElement();
+            dialog.AddToClassList("at-dialog");
+            dialog.style.backgroundColor = UiTheme.CardBackground;
+            dialog.style.borderLeftColor = UiTheme.Accent;
+            dialog.style.borderRightColor = UiTheme.CardBorder;
+            dialog.style.borderTopColor = UiTheme.CardBorder;
+            dialog.style.borderBottomColor = UiTheme.CardBorder;
+            dialog.style.borderLeftWidth = 3;
+            dialog.style.paddingTop = 12;
+            dialog.style.paddingBottom = 12;
+            dialog.style.paddingLeft = 12;
+            dialog.style.paddingRight = 12;
+
+            // Sizing is flex-driven on purpose: the dialog may never grow past the overlay.
+            // With flexShrink it shrinks to fit short/narrow docks and the scroll view
+            // scrolls instead of the dialog being clipped by the window frame - which is
+            // what pushed the preset cards and the action buttons out of view.
+            dialog.style.minWidth = 320;
+            dialog.style.maxWidth = 560;
+            dialog.style.maxHeight = 640;
+            dialog.style.flexShrink = 1;
+
+            var scroll = new ScrollView();
+            scroll.AddToClassList("at-grow");
+            scroll.style.flexShrink = 1;
+
+            var title = new Label(UiStrings.T("dlg.configure.title"));
+            title.AddToClassList("at-card-title");
+            scroll.Add(title);
+
+            // The currently selected preset is always visible.
+            scroll.Add(Line(UiStrings.T("ui.label.preset") + ": " +
+                            UiStrings.T(PresetNameKey(_controller.Preset))));
+
+            scroll.Add(BuildDialogPresetCards());
+            scroll.Add(Message(UiStrings.T(PresetImpactKey(_controller.Preset)), UiTheme.Info));
+
+            if (_controller.Plan != null)
+            {
+                scroll.Add(BuildPlanSummaryCard());
+            }
+            else
+            {
+                scroll.Add(Line(UiStrings.T("ui.hint.analyzeFirst")));
+            }
+
+            scroll.Add(BuildDialogAdvanced());
+
+            dialog.Add(scroll);
+            dialog.Add(BuildDialogButtons());
+            _dialogArea.Add(dialog);
+        }
+
+        /// <summary>The three presets as selectable cards with semantic highlighting.</summary>
+        private VisualElement BuildDialogPresetCards()
         {
             var card = Card("ui.section.quality");
-            card.Add(Message(UiStrings.T("tip.presetField"), UiTheme.Neutral));
-
             var row = new VisualElement();
             row.AddToClassList("at-row-top");
+
             foreach (OptimizationPreset preset in Enum.GetValues(typeof(OptimizationPreset)))
             {
                 var captured = preset;
@@ -1687,6 +2229,7 @@ namespace AvatarTuner.Editor.UI
                 var presetCard = new Button(() =>
                 {
                     _controller.Preset = captured;
+                    PresetMemory.Save(SessionState.SetString, captured);
                     _controller.RebuildPlan();
                     RefreshView();
                 });
@@ -1722,9 +2265,24 @@ namespace AvatarTuner.Editor.UI
             return card;
         }
 
-        private VisualElement BuildOverrideCard()
+        /// <summary>
+        /// The collapsible advanced settings: analysis preferences, the preset's quality
+        /// threshold, and the per-texture overrides (exclusion, keep resolution/format,
+        /// forced max size and format) - all through the existing configuration model.
+        /// </summary>
+        private VisualElement BuildDialogAdvanced()
         {
-            var card = Card("ui.section.overrides");
+            var advanced = new Foldout();
+            advanced.text = UiStrings.T("ui.section.advanced");
+            advanced.value = _dialogAdvanced;
+            advanced.AddToClassList("at-details");
+            advanced.RegisterValueChangedCallback(evt => _dialogAdvanced = evt.newValue);
+
+            var policy = PresetCatalog.GetPolicy(_controller.Preset);
+            advanced.Add(DetailRow("ui.label.qualityThreshold",
+                policy.MinEstimatedQualityDb.ToString("0.#", CultureInfo.InvariantCulture) + " dB"));
+
+            advanced.Add(BuildPreferencesCard());
 
             var buttons = new VisualElement();
             buttons.AddToClassList("at-row");
@@ -1736,21 +2294,14 @@ namespace AvatarTuner.Editor.UI
                 () => { SetAllIncluded(true); RefreshView(); }));
             buttons.Add(SecondaryButton("ui.button.selectNone",
                 () => { SetAllIncluded(false); RefreshView(); }));
-            card.Add(buttons);
-
-            card.Add(Message(UiStrings.T("tip.exclusionList"), UiTheme.Neutral));
+            advanced.Add(buttons);
+            advanced.Add(Message(UiStrings.T("tip.exclusionList"), UiTheme.Neutral));
 
             if (_controller.Plan == null)
             {
-                card.Add(Line(UiStrings.T("ui.hint.analyzeFirst")));
-                return card;
+                advanced.Add(Line(UiStrings.T("ui.hint.analyzeFirst")));
+                return advanced;
             }
-
-            // Advanced per-texture controls stay collapsed until the user asks for them.
-            var list = new Foldout();
-            list.text = UiStrings.T("ui.section.advanced");
-            list.value = false;
-            list.AddToClassList("at-details");
 
             var shown = 0;
             for (var i = 0; i < _controller.Plan.Textures.Count; i++)
@@ -1758,7 +2309,7 @@ namespace AvatarTuner.Editor.UI
                 var planned = _controller.Plan.Textures[i];
                 if (shown >= 100)
                 {
-                    list.Add(Line(UiStrings.T("ui.label.moreItems",
+                    advanced.Add(Line(UiStrings.T("ui.label.moreItems",
                         (_controller.Plan.Textures.Count - shown).ToString(CultureInfo.InvariantCulture))));
                     break;
                 }
@@ -1766,28 +2317,167 @@ namespace AvatarTuner.Editor.UI
                 var row = new VisualElement();
                 row.AddToClassList("at-row");
                 row.Add(Cell("at-col-name", planned.TextureName ?? planned.TextureGuid, UiTheme.Text));
-
+                row.Add(OverrideToggle(planned, "ui.label.include",
+                    !(planned.Override != null && planned.Override.Excluded), value =>
+                    {
+                        var ovr = CloneOverride(planned.Override);
+                        ovr.Excluded = !value;
+                        _controller.SetOverride(planned.TextureGuid, ovr);
+                    }));
                 row.Add(OverrideToggle(planned, "ui.label.resolution",
                     planned.Override != null && planned.Override.KeepResolution, value =>
                     {
-                        var ovr = planned.Override ?? new TextureOverride();
+                        var ovr = CloneOverride(planned.Override);
                         ovr.KeepResolution = value;
                         _controller.SetOverride(planned.TextureGuid, ovr);
                     }));
                 row.Add(OverrideToggle(planned, "ui.label.format",
                     planned.Override != null && planned.Override.KeepFormat, value =>
                     {
-                        var ovr = planned.Override ?? new TextureOverride();
+                        var ovr = CloneOverride(planned.Override);
                         ovr.KeepFormat = value;
                         _controller.SetOverride(planned.TextureGuid, ovr);
                     }));
+                row.Add(MaxSizeDropdown(planned));
+                row.Add(FormatDropdown(planned));
 
-                list.Add(row);
+                advanced.Add(row);
                 shown++;
             }
 
-            card.Add(list);
-            return card;
+            return advanced;
+        }
+
+        private static TextureOverride CloneOverride(TextureOverride source)
+        {
+            return source == null
+                ? new TextureOverride()
+                : TextureOverride.FromDictionary(source.ToDictionary());
+        }
+
+        /// <summary>Per-texture resolution cap (forced max size), "-" = follow the preset.</summary>
+        private VisualElement MaxSizeDropdown(PlannedTexture planned)
+        {
+            var dropdown = new DropdownField();
+            dropdown.label = UiStrings.T("ui.label.forceMaxSize");
+            dropdown.choices = new List<string> { "—", "4096", "2048", "1024", "512", "256", "128" };
+            dropdown.AddToClassList("at-col-w110");
+
+            var ovr = planned.Override;
+            dropdown.value = ovr != null && ovr.ForceMaxSize
+                ? ovr.ForcedMaxSize.ToString(CultureInfo.InvariantCulture)
+                : "—";
+
+            dropdown.SetEnabled(!planned.ProtectedByThirdParty);
+            dropdown.RegisterValueChangedCallback(evt =>
+            {
+                var next = CloneOverride(planned.Override);
+                int maxSize;
+                next.ForceMaxSize = int.TryParse(evt.newValue, out maxSize);
+                if (next.ForceMaxSize)
+                {
+                    next.ForcedMaxSize = maxSize;
+                }
+
+                _controller.SetOverride(planned.TextureGuid, next);
+            });
+            return dropdown;
+        }
+
+        /// <summary>Per-texture compression preference (forced format), "-" = follow the preset.</summary>
+        private VisualElement FormatDropdown(PlannedTexture planned)
+        {
+            var dropdown = new DropdownField();
+            dropdown.label = UiStrings.T("ui.label.forceFormat");
+            dropdown.choices = new List<string> { "—" };
+            foreach (TunerTextureFormat format in Enum.GetValues(typeof(TunerTextureFormat)))
+            {
+                dropdown.choices.Add(format.ToString());
+            }
+
+            dropdown.AddToClassList("at-col-w110");
+
+            var ovr = planned.Override;
+            dropdown.value = ovr != null && ovr.ForceFormat
+                ? ovr.ForcedFormat.ToString()
+                : "—";
+
+            dropdown.SetEnabled(!planned.ProtectedByThirdParty);
+            dropdown.RegisterValueChangedCallback(evt =>
+            {
+                var next = CloneOverride(planned.Override);
+                TunerTextureFormat format;
+                next.ForceFormat = Enum.TryParse(evt.newValue, true, out format);
+                if (next.ForceFormat)
+                {
+                    next.ForcedFormat = format;
+                }
+
+                _controller.SetOverride(planned.TextureGuid, next);
+            });
+            return dropdown;
+        }
+
+        /// <summary>
+        /// The dialog's action row. Cancel closes without doing anything; Confirm is the
+        /// explicit confirmation and is gated on a fresh plan with real changes that the
+        /// compatibility verdict allows. Re-optimizing an already optimized avatar goes
+        /// through exactly this same dialog.
+        /// </summary>
+        private VisualElement BuildDialogButtons()
+        {
+            var row = new VisualElement();
+            row.AddToClassList("at-row");
+            row.style.marginTop = 8;
+
+            var planFresh = _controller.IsPlanFresh();
+            var reasonKey = OptimizationDialogModel.ConfirmDisabledReasonKey(
+                WindowFlow.IsBusy(_controller.State),
+                _controller.Plan != null,
+                _controller.Plan != null && _controller.Plan.HasChanges,
+                planFresh,
+                _controller.CompatibilityAllows);
+
+            var hint = WorkflowModel.OptimizeDisabledReasonKey(
+                _controller.State,
+                _controller.Avatar != null,
+                _controller.Plan != null,
+                _controller.Plan != null && _controller.Plan.HasChanges,
+                _controller.CompatibilityAllows);
+            if (reasonKey == null && hint != null)
+            {
+                reasonKey = hint;
+            }
+
+            var cancel = new Button(CloseOptimizeDialog) { text = UiStrings.T("ui.button.cancel") };
+            cancel.AddToClassList("at-btn");
+            cancel.style.backgroundColor = UiTheme.ChipBackground;
+            cancel.style.color = UiTheme.Text;
+            row.Add(cancel);
+
+            row.Add(Spacer());
+
+            var confirm = new Button(ConfirmOptimize) { text = UiStrings.T("ui.button.confirmOptimize") };
+            confirm.AddToClassList("at-primary-btn");
+            confirm.style.backgroundColor = UiTheme.Accent;
+            confirm.style.color = UiTheme.TextOnAccent;
+            confirm.SetEnabled(reasonKey == null);
+            confirm.tooltip = reasonKey == null
+                ? UiStrings.T("tip.optimizeButton")
+                : UiStrings.T(reasonKey);
+            row.Add(confirm);
+            return row;
+        }
+
+        /// <summary>
+        /// Executes the optimization for the reviewed plan. The plan is rebuilt from the
+        /// current configuration inside RunOptimization and a stale plan is refused, so
+        /// what is executed is exactly what was reviewed.
+        /// </summary>
+        private void ConfirmOptimize()
+        {
+            _dialogOpen = false;
+            RunOptimize();
         }
 
         private VisualElement OverrideToggle(
@@ -1878,22 +2568,21 @@ namespace AvatarTuner.Editor.UI
                 EditorUtility.ClearProgressBar();
             }
 
+            if (_controller.LastAnalyzeRestored)
+            {
+                ShowNotice("apply.info.restoredForAnalysis");
+            }
+
             RefreshView();
         }
 
         private void RunOptimize()
         {
             ClearNotice();
-            var outputFolder = TextureOptimizer.DefaultOutputFolder(_controller.Report);
-            if (!EditorUtility.DisplayDialog(
-                    UiStrings.T("dlg.optimize.title"),
-                    UiStrings.T("dlg.optimize.message", outputFolder),
-                    UiStrings.T("dlg.yes"),
-                    UiStrings.T("dlg.no")))
-            {
-                return;
-            }
 
+            // The configuration dialog was the explicit confirmation: the reviewed plan
+            // and settings were on screen and the user pressed Confirm & Optimize. Only
+            // the overwrite guard may ask one extra question before writing outputs.
             if (!_controller.OverwriteGenerated && _controller.HasRecordedOutputs)
             {
                 var existing = _controller.RecordedState != null
@@ -1922,7 +2611,14 @@ namespace AvatarTuner.Editor.UI
 
             if (succeeded)
             {
-                ShowNotice("opt.done");
+                // A single informative operation notice; the results page itself - not a
+                // generic success banner - is the headline of a finished run.
+                var numbers = _controller.CurrentMemoryNumbers();
+                var trio = MemoryReportModel.FormatTrio(numbers);
+                ShowNotice("opt.done.summary",
+                    numbers.OptimizedCount.ToString(CultureInfo.InvariantCulture),
+                    trio.SavingText,
+                    trio.SavingPercentText);
                 _module = ModuleResults;
             }
             else if (_cancelRequested)
@@ -1982,7 +2678,7 @@ namespace AvatarTuner.Editor.UI
             }
 
             _controller.CleanupGenerated();
-            ShowNotice("opt.done");
+            ShowNotice("opt.cleanupDone", count);
             RefreshView();
         }
 
@@ -2026,7 +2722,7 @@ namespace AvatarTuner.Editor.UI
         private void CopySummary()
         {
             EditorGUIUtility.systemCopyBuffer = BuildReportText();
-            ShowNotice("opt.done");
+            ShowNotice("report.copied");
             RefreshView();
         }
 
@@ -2041,15 +2737,32 @@ namespace AvatarTuner.Editor.UI
             builder.AppendLine();
             builder.AppendLine(UiStrings.T("report.summary"));
 
-            var plan = _controller.Plan;
-            if (plan != null)
+            // Same shared numbers as the UI; labels state what each number is.
+            var numbers = _controller.CurrentMemoryNumbers();
+            var trio = MemoryReportModel.FormatTrio(numbers);
+            if (numbers.HasSource)
             {
-                builder.AppendLine(UiStrings.T("results.gpuMemoryBefore") + ": " +
-                                   TextureFormatInfo.FormatBytes(plan.SourceBytesTotal));
-                builder.AppendLine(UiStrings.T("results.gpuMemoryAfter") + ": " +
-                                   TextureFormatInfo.FormatBytes(plan.TargetBytesTotal));
-                builder.AppendLine(UiStrings.T("results.gpuMemorySaved") + ": " +
-                                   TextureFormatInfo.FormatBytes(plan.SavingBytes));
+                builder.AppendLine(UiStrings.T("ui.label.sourceMemory") + ": " + trio.BeforeText);
+                if (trio.HasAfter)
+                {
+                    builder.AppendLine(UiStrings.T("ui.label.outputMemory") + ": " + trio.AfterText);
+                    builder.AppendLine(UiStrings.T("results.gpuMemorySaved") + ": " +
+                                       trio.SavingText + " (" + trio.SavingPercentText + ")");
+                    builder.AppendLine("- " + UiStrings.T(numbers.OutputFromGeneratedOutputs
+                        ? "results.basisComputedOutput"
+                        : "results.basisEstimate"));
+                    builder.AppendLine("- " + UiStrings.T("results.outputsStandalone",
+                        GeneratedAssetStore.GeneratedRoot));
+                }
+
+                builder.AppendLine(UiStrings.T("results.count.optimized",
+                    numbers.OptimizedCount.ToString(CultureInfo.InvariantCulture)));
+                builder.AppendLine(UiStrings.T("results.count.skipped",
+                    numbers.SkippedCount.ToString(CultureInfo.InvariantCulture)));
+                builder.AppendLine(UiStrings.T("results.count.excluded",
+                    numbers.ExcludedCount.ToString(CultureInfo.InvariantCulture)));
+                builder.AppendLine(UiStrings.T("results.count.review",
+                    numbers.ReviewCount.ToString(CultureInfo.InvariantCulture)));
             }
 
             builder.AppendLine();
@@ -2462,6 +3175,17 @@ namespace AvatarTuner.Editor.UI
                 case OptimizationPreset.QualityFirst: return "preset.quality-first.description";
                 case OptimizationPreset.SizeFirst: return "preset.size-first.description";
                 default: return "preset.balanced.description";
+            }
+        }
+
+        /// <summary>The preset's "what this means for you" line (allowed changes / tradeoffs / warning).</summary>
+        private static string PresetImpactKey(OptimizationPreset preset)
+        {
+            switch (preset)
+            {
+                case OptimizationPreset.QualityFirst: return "preset.quality-first.impact";
+                case OptimizationPreset.SizeFirst: return "preset.size-first.impact";
+                default: return "preset.balanced.impact";
             }
         }
     }

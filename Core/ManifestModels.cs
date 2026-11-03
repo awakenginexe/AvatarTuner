@@ -116,6 +116,9 @@ namespace AvatarTuner.Core
         /// <summary>Hash of the plan/decision that produced this file.</summary>
         public string PlanHash;
 
+        /// <summary>Planned GPU memory of this output (0 when not a texture).</summary>
+        public long TargetBytes;
+
         /// <summary>Source GUIDs this file was derived from. Drives partial invalidation.</summary>
         public readonly List<string> DerivedFromGuids = new List<string>();
 
@@ -127,6 +130,7 @@ namespace AvatarTuner.Core
             dict["kind"] = Kind ?? string.Empty;
             dict["contentHash"] = ContentHash ?? string.Empty;
             dict["planHash"] = PlanHash ?? string.Empty;
+            dict["targetBytes"] = TargetBytes;
             dict["derivedFrom"] = new List<object>(DerivedFromGuids.ToArray());
             return dict;
         }
@@ -144,6 +148,7 @@ namespace AvatarTuner.Core
             state.Kind = MiniJson.GetString(dict, "kind", string.Empty);
             state.ContentHash = MiniJson.GetString(dict, "contentHash", string.Empty);
             state.PlanHash = MiniJson.GetString(dict, "planHash", string.Empty);
+            state.TargetBytes = MiniJson.GetLong(dict, "targetBytes", 0);
 
             var derived = MiniJson.GetList(dict, "derivedFrom");
             if (derived != null)
@@ -158,6 +163,125 @@ namespace AvatarTuner.Core
                 }
             }
 
+            return state;
+        }
+    }
+
+    /// <summary>One renderer material slot that was repointed during direct scene application.</summary>
+    public sealed class AppliedRendererBinding
+    {
+        /// <summary>Hierarchy path of the renderer under the avatar root.</summary>
+        public string RendererPath;
+
+        public int SlotIndex;
+
+        /// <summary>GUID of the original (untouched) source material asset.</summary>
+        public string OriginalMaterialGuid;
+
+        /// <summary>GUID of the generated optimized material clone that was assigned.</summary>
+        public string AppliedMaterialGuid;
+
+        /// <summary>Asset path of the generated material clone.</summary>
+        public string AppliedMaterialPath;
+
+        public Dictionary<string, object> ToDictionary()
+        {
+            var dict = new Dictionary<string, object>(StringComparer.Ordinal);
+            dict["rendererPath"] = RendererPath ?? string.Empty;
+            dict["slotIndex"] = (long)SlotIndex;
+            dict["originalMaterialGuid"] = OriginalMaterialGuid ?? string.Empty;
+            dict["appliedMaterialGuid"] = AppliedMaterialGuid ?? string.Empty;
+            dict["appliedMaterialPath"] = AppliedMaterialPath ?? string.Empty;
+            return dict;
+        }
+
+        public static AppliedRendererBinding FromDictionary(Dictionary<string, object> dict)
+        {
+            var state = new AppliedRendererBinding();
+            if (dict == null)
+            {
+                return state;
+            }
+
+            state.RendererPath = MiniJson.GetString(dict, "rendererPath", string.Empty);
+            state.SlotIndex = (int)MiniJson.GetLong(dict, "slotIndex", 0);
+            state.OriginalMaterialGuid = MiniJson.GetString(dict, "originalMaterialGuid", string.Empty);
+            state.AppliedMaterialGuid = MiniJson.GetString(dict, "appliedMaterialGuid", string.Empty);
+            state.AppliedMaterialPath = MiniJson.GetString(dict, "appliedMaterialPath", string.Empty);
+            return state;
+        }
+    }
+
+    /// <summary>A generated optimized material clone and its untouched original.</summary>
+    public sealed class AppliedMaterialClone
+    {
+        public string OriginalMaterialGuid;
+        public string OriginalMaterialPath;
+        public string GeneratedMaterialPath;
+
+        public Dictionary<string, object> ToDictionary()
+        {
+            var dict = new Dictionary<string, object>(StringComparer.Ordinal);
+            dict["originalMaterialGuid"] = OriginalMaterialGuid ?? string.Empty;
+            dict["originalMaterialPath"] = OriginalMaterialPath ?? string.Empty;
+            dict["generatedMaterialPath"] = GeneratedMaterialPath ?? string.Empty;
+            return dict;
+        }
+
+        public static AppliedMaterialClone FromDictionary(Dictionary<string, object> dict)
+        {
+            var state = new AppliedMaterialClone();
+            if (dict == null)
+            {
+                return state;
+            }
+
+            state.OriginalMaterialGuid = MiniJson.GetString(dict, "originalMaterialGuid", string.Empty);
+            state.OriginalMaterialPath = MiniJson.GetString(dict, "originalMaterialPath", string.Empty);
+            state.GeneratedMaterialPath = MiniJson.GetString(dict, "generatedMaterialPath", string.Empty);
+            return state;
+        }
+    }
+
+    /// <summary>An animation asset remapped during direct scene application.</summary>
+    public sealed class AppliedAnimationBinding
+    {
+        public string OriginalClipPath;
+        public string GeneratedClipPath;
+        public string OriginalControllerPath;
+        public string GeneratedControllerPath;
+
+        /// <summary>Hierarchy path of the animator that received the cloned controller.</summary>
+        public string AnimatorPath;
+
+        public int RemappedReferenceCount;
+
+        public Dictionary<string, object> ToDictionary()
+        {
+            var dict = new Dictionary<string, object>(StringComparer.Ordinal);
+            dict["originalClipPath"] = OriginalClipPath ?? string.Empty;
+            dict["generatedClipPath"] = GeneratedClipPath ?? string.Empty;
+            dict["originalControllerPath"] = OriginalControllerPath ?? string.Empty;
+            dict["generatedControllerPath"] = GeneratedControllerPath ?? string.Empty;
+            dict["animatorPath"] = AnimatorPath ?? string.Empty;
+            dict["remappedReferenceCount"] = (long)RemappedReferenceCount;
+            return dict;
+        }
+
+        public static AppliedAnimationBinding FromDictionary(Dictionary<string, object> dict)
+        {
+            var state = new AppliedAnimationBinding();
+            if (dict == null)
+            {
+                return state;
+            }
+
+            state.OriginalClipPath = MiniJson.GetString(dict, "originalClipPath", string.Empty);
+            state.GeneratedClipPath = MiniJson.GetString(dict, "generatedClipPath", string.Empty);
+            state.OriginalControllerPath = MiniJson.GetString(dict, "originalControllerPath", string.Empty);
+            state.GeneratedControllerPath = MiniJson.GetString(dict, "generatedControllerPath", string.Empty);
+            state.AnimatorPath = MiniJson.GetString(dict, "animatorPath", string.Empty);
+            state.RemappedReferenceCount = (int)MiniJson.GetLong(dict, "remappedReferenceCount", 0);
             return state;
         }
     }
@@ -187,6 +311,68 @@ namespace AvatarTuner.Core
 
         /// <summary>ISO-8601 UTC timestamp of the last attempt, successful or not.</summary>
         public string LastAttemptUtc;
+
+        // ---- recorded metrics of the last run (0 when unknown; older manifests omit them)
+        // so the results can be restored after reopening the tool. Source/Output bytes are
+        // GPU texture memory totals computed at run time from the same shared numbers the
+        // UI showed; they are computed values, never measurements.
+
+        /// <summary>GPU texture memory of the source textures at the last run.</summary>
+        public long SourceBytesTotal;
+
+        /// <summary>GPU texture memory of the optimized output at the last run.</summary>
+        public long OutputBytesTotal;
+
+        /// <summary>Textures that received a generated output.</summary>
+        public int OptimizedCount;
+
+        /// <summary>Textures the generator skipped (kept at source).</summary>
+        public int SkippedCount;
+
+        /// <summary>Textures the user excluded.</summary>
+        public int ExcludedCount;
+
+        /// <summary>Textures flagged for manual review.</summary>
+        public int ReviewCount;
+
+        // ---- build-time application ("Use Optimized Textures During Build")
+        // The setting is per avatar and requires explicit user consent. The build-time
+        // pass records its own evidence here; a successful build application is never
+        // confused with a successful VRChat upload - we never see the upload at all.
+
+        /// <summary>True once the user explicitly chose the build-application setting.</summary>
+        public bool BuildApplicationConfigured;
+
+        /// <summary>The user's consent to apply generated textures at build time.</summary>
+        public bool UseOptimizedTexturesOnBuild;
+
+        /// <summary>ISO-8601 UTC timestamp of the last build-time application attempt.</summary>
+        public string LastBuildApplicationUtc;
+
+        /// <summary>Error key of the last failed build application, or empty when it succeeded.</summary>
+        public string LastBuildApplicationError;
+
+        // ---- direct scene application (optimized materials assigned to the scene avatar)
+
+        /// <summary>True when optimized materials were assigned to the scene avatar.</summary>
+        public bool AppliedToAvatar;
+
+        /// <summary>True when some references could not be safely remapped (partial apply).</summary>
+        public bool AppliedPartially;
+
+        /// <summary>ISO-8601 UTC timestamp of the last scene application, or empty.</summary>
+        public string AppliedUtc;
+
+        /// <summary>Restore info: which renderer slot originally referenced which material.</summary>
+        public readonly List<AppliedRendererBinding> RendererBindings =
+            new List<AppliedRendererBinding>();
+
+        /// <summary>Source material → generated optimized material clone mapping.</summary>
+        public readonly List<AppliedMaterialClone> MaterialClones = new List<AppliedMaterialClone>();
+
+        /// <summary>Remapped animation assets (material-swap object references).</summary>
+        public readonly List<AppliedAnimationBinding> AnimationBindings =
+            new List<AppliedAnimationBinding>();
 
         public readonly List<SourceAssetState> Sources = new List<SourceAssetState>();
         public readonly List<GeneratedAssetState> Generated = new List<GeneratedAssetState>();
@@ -244,6 +430,43 @@ namespace AvatarTuner.Core
             dict["lastError"] = LastError ?? string.Empty;
             dict["lastSuccessUtc"] = LastSuccessUtc ?? string.Empty;
             dict["lastAttemptUtc"] = LastAttemptUtc ?? string.Empty;
+            dict["sourceBytesTotal"] = SourceBytesTotal;
+            dict["outputBytesTotal"] = OutputBytesTotal;
+            dict["optimizedCount"] = (long)OptimizedCount;
+            dict["skippedCount"] = (long)SkippedCount;
+            dict["excludedCount"] = (long)ExcludedCount;
+            dict["reviewCount"] = (long)ReviewCount;
+            dict["buildApplicationConfigured"] = BuildApplicationConfigured;
+            dict["useOptimizedTexturesOnBuild"] = UseOptimizedTexturesOnBuild;
+            dict["lastBuildApplicationUtc"] = LastBuildApplicationUtc ?? string.Empty;
+            dict["lastBuildApplicationError"] = LastBuildApplicationError ?? string.Empty;
+            dict["appliedToAvatar"] = AppliedToAvatar;
+            dict["appliedPartially"] = AppliedPartially;
+            dict["appliedUtc"] = AppliedUtc ?? string.Empty;
+
+            var bindings = new List<object>();
+            for (var i = 0; i < RendererBindings.Count; i++)
+            {
+                bindings.Add(RendererBindings[i].ToDictionary());
+            }
+
+            dict["rendererBindings"] = bindings;
+
+            var clones = new List<object>();
+            for (var i = 0; i < MaterialClones.Count; i++)
+            {
+                clones.Add(MaterialClones[i].ToDictionary());
+            }
+
+            dict["materialClones"] = clones;
+
+            var animations = new List<object>();
+            for (var i = 0; i < AnimationBindings.Count; i++)
+            {
+                animations.Add(AnimationBindings[i].ToDictionary());
+            }
+
+            dict["animationBindings"] = animations;
 
             var sources = new List<object>();
             for (var i = 0; i < Sources.Count; i++)
@@ -281,6 +504,49 @@ namespace AvatarTuner.Core
             state.LastError = MiniJson.GetString(dict, "lastError", string.Empty);
             state.LastSuccessUtc = MiniJson.GetString(dict, "lastSuccessUtc", string.Empty);
             state.LastAttemptUtc = MiniJson.GetString(dict, "lastAttemptUtc", string.Empty);
+            state.SourceBytesTotal = MiniJson.GetLong(dict, "sourceBytesTotal", 0);
+            state.OutputBytesTotal = MiniJson.GetLong(dict, "outputBytesTotal", 0);
+            state.OptimizedCount = (int)MiniJson.GetLong(dict, "optimizedCount", 0);
+            state.SkippedCount = (int)MiniJson.GetLong(dict, "skippedCount", 0);
+            state.ExcludedCount = (int)MiniJson.GetLong(dict, "excludedCount", 0);
+            state.ReviewCount = (int)MiniJson.GetLong(dict, "reviewCount", 0);
+            state.BuildApplicationConfigured = MiniJson.GetBool(dict, "buildApplicationConfigured", false);
+            state.UseOptimizedTexturesOnBuild = MiniJson.GetBool(dict, "useOptimizedTexturesOnBuild", false);
+            state.LastBuildApplicationUtc = MiniJson.GetString(dict, "lastBuildApplicationUtc", string.Empty);
+            state.LastBuildApplicationError = MiniJson.GetString(dict, "lastBuildApplicationError", string.Empty);
+            state.AppliedToAvatar = MiniJson.GetBool(dict, "appliedToAvatar", false);
+            state.AppliedPartially = MiniJson.GetBool(dict, "appliedPartially", false);
+            state.AppliedUtc = MiniJson.GetString(dict, "appliedUtc", string.Empty);
+
+            var bindings = MiniJson.GetList(dict, "rendererBindings");
+            if (bindings != null)
+            {
+                for (var i = 0; i < bindings.Count; i++)
+                {
+                    state.RendererBindings.Add(
+                        AppliedRendererBinding.FromDictionary(bindings[i] as Dictionary<string, object>));
+                }
+            }
+
+            var clones = MiniJson.GetList(dict, "materialClones");
+            if (clones != null)
+            {
+                for (var i = 0; i < clones.Count; i++)
+                {
+                    state.MaterialClones.Add(
+                        AppliedMaterialClone.FromDictionary(clones[i] as Dictionary<string, object>));
+                }
+            }
+
+            var animations = MiniJson.GetList(dict, "animationBindings");
+            if (animations != null)
+            {
+                for (var i = 0; i < animations.Count; i++)
+                {
+                    state.AnimationBindings.Add(
+                        AppliedAnimationBinding.FromDictionary(animations[i] as Dictionary<string, object>));
+                }
+            }
 
             OptimizationStatus status;
             var statusText = MiniJson.GetString(dict, "status", "NotOptimized");

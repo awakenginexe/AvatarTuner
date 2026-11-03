@@ -22,6 +22,14 @@ namespace AvatarTuner.Editor.Tracking
         public string ToolVersion = string.Empty;
         public string PresetId = string.Empty;
         public DateTime UtcNow = DateTime.UtcNow;
+
+        // ---- recorded metrics of this run (see AvatarOptimizationState)
+        public long SourceBytesTotal;
+        public long OutputBytesTotal;
+        public int OptimizedCount;
+        public int SkippedCount;
+        public int ExcludedCount;
+        public int ReviewCount;
     }
 
     public static class ManifestStateBuilder
@@ -60,6 +68,12 @@ namespace AvatarTuner.Editor.Tracking
             state.EngineVersionAtOptimization = info.EngineVersion ?? string.Empty;
             state.ToolVersionAtOptimization = info.ToolVersion ?? string.Empty;
             state.PresetId = info.PresetId ?? string.Empty;
+            state.SourceBytesTotal = info.SourceBytesTotal;
+            state.OutputBytesTotal = info.OutputBytesTotal;
+            state.OptimizedCount = info.OptimizedCount;
+            state.SkippedCount = info.SkippedCount;
+            state.ExcludedCount = info.ExcludedCount;
+            state.ReviewCount = info.ReviewCount;
 
             var stamp = info.UtcNow.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
             state.LastAttemptUtc = stamp;
@@ -112,6 +126,7 @@ namespace AvatarTuner.Editor.Tracking
             state.Guid = asset.GeneratedGuid ?? string.Empty;
             state.Path = asset.GeneratedPath;
             state.Kind = "texture";
+            state.TargetBytes = asset.PlannedTargetBytes;
             state.ContentHash = asset.ContentHash ?? string.Empty;
             state.PlanHash = asset.PlanHashToken ?? string.Empty;
             if (!string.IsNullOrEmpty(asset.SourceGuid))
