@@ -39,6 +39,9 @@ namespace AvatarTuner.Editor.Analysis
 
         /// <summary>Files above this size are hashed as "too large" instead of being read.</summary>
         public long MaxHashedFileBytes = 64L * 1024L * 1024L;
+
+        /// <summary>Optional recorded optimization state, used to resolve applied clones back to source assets.</summary>
+        public AvatarOptimizationState RecordedState;
     }
 
     public static class AvatarScanner
@@ -103,6 +106,33 @@ namespace AvatarTuner.Editor.Analysis
             var materialUseCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var textureBindingCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
+            var cloneToOriginal = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (options.RecordedState != null && options.RecordedState.AppliedToAvatar)
+            {
+                for (var i = 0; i < options.RecordedState.MaterialClones.Count; i++)
+                {
+                    var clone = options.RecordedState.MaterialClones[i];
+                    if (!string.IsNullOrEmpty(clone.GeneratedMaterialPath) && !string.IsNullOrEmpty(clone.OriginalMaterialGuid))
+                    {
+                        cloneToOriginal[clone.GeneratedMaterialPath] = clone.OriginalMaterialGuid;
+                    }
+                }
+
+                for (var i = 0; i < options.RecordedState.RendererBindings.Count; i++)
+                {
+                    var binding = options.RecordedState.RendererBindings[i];
+                    if (!string.IsNullOrEmpty(binding.AppliedMaterialGuid) && !string.IsNullOrEmpty(binding.OriginalMaterialGuid))
+                    {
+                        cloneToOriginal[binding.AppliedMaterialGuid] = binding.OriginalMaterialGuid;
+                    }
+
+                    if (!string.IsNullOrEmpty(binding.AppliedMaterialPath) && !string.IsNullOrEmpty(binding.OriginalMaterialGuid))
+                    {
+                        cloneToOriginal[binding.AppliedMaterialPath] = binding.OriginalMaterialGuid;
+                    }
+                }
+            }
+
             for (var r = 0; r < renderers.Length; r++)
             {
                 var renderer = renderers[r];
@@ -158,6 +188,22 @@ namespace AvatarTuner.Editor.Analysis
                     if (material == null)
                     {
                         continue;
+                    }
+
+                    if (cloneToOriginal.Count > 0)
+                    {
+                        var matPath = AssetDatabase.GetAssetPath(material);
+                        var matGuid = string.IsNullOrEmpty(matPath) ? string.Empty : AssetDatabase.AssetPathToGUID(matPath);
+                        string origGuid;
+                        if ((!string.IsNullOrEmpty(matPath) && cloneToOriginal.TryGetValue(matPath, out origGuid)) ||
+                            (!string.IsNullOrEmpty(matGuid) && cloneToOriginal.TryGetValue(matGuid, out origGuid)))
+                        {
+                            var origMat = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(origGuid));
+                            if (origMat != null)
+                            {
+                                material = origMat;
+                            }
+                        }
                     }
 
                     var materialGuid = RegisterMaterial(material, entry.Path, report);
@@ -421,10 +467,43 @@ namespace AvatarTuner.Editor.Analysis
             {
                 var texture = report.Textures[t];
 
-                for (var b = 0; b < texture.BoundProperties.Count; b++)
+                // Gather every actual (propertyName, shaderName) binding across all materials
+                var bindings = new List<KeyValuePair<string, string>>();
+                for (var m = 0; m < texture.UsedByMaterialGuids.Count; m++)
                 {
-                    var propertyName = texture.BoundProperties[b];
-                    var shaderName = texture.UsedByShaders.Count > 0 ? texture.UsedByShaders[0] : string.Empty;
+                    var matGuid = texture.UsedByMaterialGuids[m];
+                    var material = report.FindMaterial(matGuid);
+                    if (material == null)
+                    {
+                        continue;
+                    }
+
+                    for (var b = 0; b < material.TextureBindings.Count; b++)
+                    {
+                        if (string.Equals(material.TextureBindings[b].Value, texture.Guid, StringComparison.OrdinalIgnoreCase))
+                        {
+                            bindings.Add(new KeyValuePair<string, string>(
+                                material.TextureBindings[b].Key,
+                                material.ShaderName ?? string.Empty));
+                        }
+                    }
+                }
+
+                // If no material bindings were found, fall back to BoundProperties and UsedByShaders
+                if (bindings.Count == 0)
+                {
+                    for (var b = 0; b < texture.BoundProperties.Count; b++)
+                    {
+                        var prop = texture.BoundProperties[b];
+                        var shader = texture.UsedByShaders.Count > 0 ? texture.UsedByShaders[0] : string.Empty;
+                        bindings.Add(new KeyValuePair<string, string>(prop, shader));
+                    }
+                }
+
+                for (var b = 0; b < bindings.Count; b++)
+                {
+                    var propertyName = bindings[b].Key;
+                    var shaderName = bindings[b].Value;
                     var evidence = new ClassificationEvidence();
 
                     var kind = TextureUsageClassifier.Classify(
@@ -436,7 +515,7 @@ namespace AvatarTuner.Editor.Analysis
                         texture.AlphaIsTransparency,
                         evidence);
 
-                    texture.Usage = MergeUsage(texture.Usage, kind);
+                    texture.Usage = TextureUsageClassifier.MergeUsage(texture.Usage, kind, texture.HasAlphaChannel);
                     for (var i = 0; i < evidence.Reasons.Count; i++)
                     {
                         if (!texture.UsageReasons.Contains(evidence.Reasons[i]))
@@ -448,47 +527,26 @@ namespace AvatarTuner.Editor.Analysis
             }
         }
 
-        /// <summary>
-        /// When different bindings classify the same texture differently, the most
-        /// detail-preserving kind wins. Guessing "simple albedo" for something that is also
-        /// used as a UI texture would risk visible damage, and this tool never gambles.
-        /// </summary>
-        private static TextureUsageKind MergeUsage(TextureUsageKind current, TextureUsageKind incoming)
-        {
-            if (current == TextureUsageKind.Unknown)
-            {
-                return incoming;
-            }
-
-            if (incoming == TextureUsageKind.Unknown)
-            {
-                return current;
-            }
-
-            return DetailRank(incoming) > DetailRank(current) ? incoming : current;
-        }
-
-        private static int DetailRank(TextureUsageKind kind)
-        {
-            switch (kind)
-            {
-                case TextureUsageKind.UserInterface: return 8;
-                case TextureUsageKind.Detail: return 7;
-                case TextureUsageKind.GreyscaleData: return 6;
-                case TextureUsageKind.DataMask: return 5;
-                case TextureUsageKind.NormalMap: return 4;
-                case TextureUsageKind.Emission: return 3;
-                case TextureUsageKind.AlbedoWithAlpha: return 2;
-                case TextureUsageKind.AlbedoOpaque: return 1;
-                default: return 0;
-            }
-        }
-
         // ===================================================================== animators
 
         private static void ScanAnimators(GameObject root, AvatarAnalysisReport report, ScanOptions options)
         {
             var animators = root.GetComponentsInChildren<Animator>(options.IncludeInactive);
+            var seenControllers = new HashSet<RuntimeAnimatorController>();
+
+            var cloneToOriginalCtrl = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (options.RecordedState != null && options.RecordedState.AppliedToAvatar)
+            {
+                for (var i = 0; i < options.RecordedState.AnimationBindings.Count; i++)
+                {
+                    var animBind = options.RecordedState.AnimationBindings[i];
+                    if (!string.IsNullOrEmpty(animBind.GeneratedControllerPath) && !string.IsNullOrEmpty(animBind.OriginalControllerPath))
+                    {
+                        cloneToOriginalCtrl[animBind.GeneratedControllerPath] = animBind.OriginalControllerPath;
+                    }
+                }
+            }
+
             for (var a = 0; a < animators.Length; a++)
             {
                 var animator = animators[a];
@@ -497,16 +555,69 @@ namespace AvatarTuner.Editor.Analysis
                     continue;
                 }
 
+                var controller = animator.runtimeAnimatorController;
+                var controllerPath = AssetDatabase.GetAssetPath(controller);
+                string origCtrlPath;
+                if (!string.IsNullOrEmpty(controllerPath) && cloneToOriginalCtrl.TryGetValue(controllerPath, out origCtrlPath))
+                {
+                    var origCtrl = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(origCtrlPath);
+                    if (origCtrl != null)
+                    {
+                        controller = origCtrl;
+                        controllerPath = origCtrlPath;
+                    }
+                }
+
+                seenControllers.Add(animator.runtimeAnimatorController);
+                if (controller != null) seenControllers.Add(controller);
+
                 var entry = new AnimatorEntry();
-                var controllerPath = AssetDatabase.GetAssetPath(animator.runtimeAnimatorController);
                 entry.Guid = string.IsNullOrEmpty(controllerPath)
                     ? string.Empty
                     : AssetDatabase.AssetPathToGUID(controllerPath);
                 entry.Path = controllerPath;
-                entry.Name = animator.runtimeAnimatorController.name;
+                entry.Name = controller.name;
                 entry.IsAnimatorOnAvatarRoot = animator.transform == root.transform;
 
-                CollectControllerData(animator.runtimeAnimatorController, entry, report);
+                CollectControllerData(controller, entry, report);
+
+                report.Animators.Add(entry);
+            }
+
+            // Also scan controllers on avatar descriptors (e.g. VRChat FX layers)
+            var descriptorControllers = CollectDescriptorControllers(root);
+            for (var d = 0; d < descriptorControllers.Count; d++)
+            {
+                var controller = descriptorControllers[d];
+                if (controller == null || seenControllers.Contains(controller))
+                {
+                    continue;
+                }
+
+                var controllerPath = AssetDatabase.GetAssetPath(controller);
+                string origCtrlPath;
+                if (!string.IsNullOrEmpty(controllerPath) && cloneToOriginalCtrl.TryGetValue(controllerPath, out origCtrlPath))
+                {
+                    var origCtrl = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(origCtrlPath);
+                    if (origCtrl != null)
+                    {
+                        controller = origCtrl;
+                        controllerPath = origCtrlPath;
+                    }
+                }
+
+                seenControllers.Add(descriptorControllers[d]);
+                if (controller != null) seenControllers.Add(controller);
+
+                var entry = new AnimatorEntry();
+                entry.Guid = string.IsNullOrEmpty(controllerPath)
+                    ? string.Empty
+                    : AssetDatabase.AssetPathToGUID(controllerPath);
+                entry.Path = controllerPath;
+                entry.Name = controller.name;
+                entry.IsAnimatorOnAvatarRoot = true;
+
+                CollectControllerData(controller, entry, report);
 
                 report.Animators.Add(entry);
             }
@@ -645,7 +756,7 @@ namespace AvatarTuner.Editor.Analysis
             for (var b = 0; b < objectBindings.Length; b++)
             {
                 var binding = objectBindings[b];
-                if (binding.type != typeof(Material))
+                if (!IsMaterialBinding(binding))
                 {
                     continue;
                 }
@@ -1053,6 +1164,88 @@ namespace AvatarTuner.Editor.Analysis
             }
 
             return path;
+        }
+
+        internal static bool IsMaterialBinding(EditorCurveBinding binding)
+        {
+            if (binding.type == typeof(Material))
+            {
+                return true;
+            }
+
+            if (typeof(Renderer).IsAssignableFrom(binding.type))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrEmpty(binding.propertyName) &&
+                (binding.propertyName.StartsWith("m_Materials", StringComparison.Ordinal) ||
+                 binding.propertyName.IndexOf("material", StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static List<RuntimeAnimatorController> CollectDescriptorControllers(GameObject root)
+        {
+            var list = new List<RuntimeAnimatorController>();
+            if (root == null)
+            {
+                return list;
+            }
+
+            var components = root.GetComponentsInChildren<Component>(true);
+            for (var i = 0; i < components.Length; i++)
+            {
+                var component = components[i];
+                if (component == null)
+                {
+                    continue;
+                }
+
+                var type = component.GetType();
+                if (type.Name.IndexOf("AvatarDescriptor", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+
+                var fields = type.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                for (var f = 0; f < fields.Length; f++)
+                {
+                    var field = fields[f];
+                    if (field.Name == "baseAnimationLayers" || field.Name == "specialAnimationLayers")
+                    {
+                        var array = field.GetValue(component) as Array;
+                        if (array == null)
+                        {
+                            continue;
+                        }
+
+                        for (var a = 0; a < array.Length; a++)
+                        {
+                            var layer = array.GetValue(a);
+                            if (layer == null)
+                            {
+                                continue;
+                            }
+
+                            var ctrlField = layer.GetType().GetField("animatorController", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                            if (ctrlField != null)
+                            {
+                                var ctrl = ctrlField.GetValue(layer) as RuntimeAnimatorController;
+                                if (ctrl != null && !list.Contains(ctrl))
+                                {
+                                    list.Add(ctrl);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return list;
         }
     }
 }

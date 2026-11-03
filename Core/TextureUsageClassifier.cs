@@ -88,15 +88,15 @@ namespace AvatarTuner.Core
         private static readonly string[] MaskNameTokens =
         {
             "_mask", "_metallic", "_smoothness", "_glossiness", "_gloss", "_occlusion",
-            "_ao", "_roughness", "_detailmask", "_matcap", "_specular", "_reflection",
-            "_parallax", "_height", "_displacement", "_cutoff", "_opacitymask", "_lut",
+            "_ao", "_roughness", "_detailmask", "_specular", "_reflection",
+            "_parallax", "_height", "_displacement", "_cutoff", "_opacitymask",
             "_emissionmask", "_shadowmask", "_shadownmask", "_rimmask", "_widthmask"
         };
 
         private static readonly string[] GreyscaleNameTokens =
         {
             "_height", "_parallax", "_displacement", "_ao", "_occlusion", "_roughness",
-            "_smoothness", "_metallic", "_gloss", "_lut", "_cavity", "_thickness"
+            "_smoothness", "_metallic", "_gloss", "_cavity", "_thickness"
         };
 
         private static readonly string[] DetailNameTokens =
@@ -161,6 +161,25 @@ namespace AvatarTuner.Core
             {
                 evidence.Add("property/importer indicates a normal map");
                 return TextureUsageKind.NormalMap;
+            }
+
+            var isMatCap = prop.Contains("matcap") || asset.Contains("matcap");
+            if (isMatCap && !prop.Contains("mask") && !asset.Contains("mask"))
+            {
+                evidence.Add("property/name indicates a full-color matcap texture");
+                return (sourceHasAlpha && (alphaIsTransparency || evidence.ShaderIndicatesAlpha))
+                    ? TextureUsageKind.AlbedoWithAlpha
+                    : TextureUsageKind.AlbedoOpaque;
+            }
+
+            var isColorRampOrLut = (prop.Contains("lut") || prop.Contains("ramp") || asset.Contains("ramp")) &&
+                                   !prop.Contains("mask") && !asset.Contains("mask");
+            if (isColorRampOrLut)
+            {
+                evidence.Add("property/name indicates a color ramp or lookup texture");
+                return (sourceHasAlpha && (alphaIsTransparency || evidence.ShaderIndicatesAlpha))
+                    ? TextureUsageKind.AlbedoWithAlpha
+                    : TextureUsageKind.AlbedoOpaque;
             }
 
             if (evidence.NameIndicatesDetail)
@@ -252,6 +271,100 @@ namespace AvatarTuner.Core
             }
 
             return evidence.NameIndicatesFace || evidence.NameIndicatesEye || evidence.NameIndicatesSmallText;
+        }
+
+        /// <summary>
+        /// Merges classifications across multiple bindings on the same texture conservatively.
+        /// When different bindings disagree, color preservation always wins over data/mask
+        /// compression to ensure required RGB/Alpha channels are never discarded.
+        /// </summary>
+        public static TextureUsageKind MergeUsage(TextureUsageKind current, TextureUsageKind incoming, bool hasAlpha = false)
+        {
+            if (current == TextureUsageKind.Unknown) return incoming;
+            if (incoming == TextureUsageKind.Unknown) return current;
+            if (current == incoming) return current;
+
+            // UI textures must be read at full resolution and full fidelity.
+            if (current == TextureUsageKind.UserInterface || incoming == TextureUsageKind.UserInterface)
+            {
+                return TextureUsageKind.UserInterface;
+            }
+
+            var currentIsColor = IsColorUsage(current);
+            var incomingIsColor = IsColorUsage(incoming);
+
+            // Mixed color/data usage: color MUST win to prevent color textures from being
+            // compressed into 1-channel or 2-channel formats like BC4 or BC5!
+            if (currentIsColor && !incomingIsColor)
+            {
+                if (current == TextureUsageKind.AlbedoWithAlpha || (incoming == TextureUsageKind.DataMask && hasAlpha))
+                {
+                    return TextureUsageKind.AlbedoWithAlpha;
+                }
+                return current;
+            }
+
+            if (!currentIsColor && incomingIsColor)
+            {
+                if (incoming == TextureUsageKind.AlbedoWithAlpha || (current == TextureUsageKind.DataMask && hasAlpha))
+                {
+                    return TextureUsageKind.AlbedoWithAlpha;
+                }
+                return incoming;
+            }
+
+            // Both are color usages: prioritize alpha preservation, then detail, emission, opaque albedo.
+            if (currentIsColor && incomingIsColor)
+            {
+                if (current == TextureUsageKind.AlbedoWithAlpha || incoming == TextureUsageKind.AlbedoWithAlpha)
+                {
+                    return TextureUsageKind.AlbedoWithAlpha;
+                }
+
+                if (current == TextureUsageKind.Detail || incoming == TextureUsageKind.Detail)
+                {
+                    return TextureUsageKind.Detail;
+                }
+
+                if (current == TextureUsageKind.Emission || incoming == TextureUsageKind.Emission)
+                {
+                    return TextureUsageKind.Emission;
+                }
+
+                return TextureUsageKind.AlbedoOpaque;
+            }
+
+            // Normal map conflicting with non-color data (e.g. mask): conservative Unknown
+            if (current == TextureUsageKind.NormalMap || incoming == TextureUsageKind.NormalMap)
+            {
+                return TextureUsageKind.Unknown;
+            }
+
+            // Both are data usages: multi-channel DataMask beats single-channel GreyscaleData
+            if (current == TextureUsageKind.DataMask || incoming == TextureUsageKind.DataMask)
+            {
+                return TextureUsageKind.DataMask;
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// True when the usage represents color (RGB or RGBA) rather than purely non-color data.
+        /// </summary>
+        public static bool IsColorUsage(TextureUsageKind kind)
+        {
+            switch (kind)
+            {
+                case TextureUsageKind.AlbedoWithAlpha:
+                case TextureUsageKind.AlbedoOpaque:
+                case TextureUsageKind.Emission:
+                case TextureUsageKind.Detail:
+                case TextureUsageKind.UserInterface:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         /// <summary>

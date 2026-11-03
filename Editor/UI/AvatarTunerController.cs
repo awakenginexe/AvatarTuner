@@ -228,22 +228,9 @@ namespace AvatarTuner.Editor.UI
             State = WindowFlow.BeginAnalysis();
             try
             {
-                // Analyzing an avatar with applied optimized materials would scan the
-                // generated clones as if they were sources. Restore the recorded originals
-                // first, so the analysis always sees the true source assets.
                 LastAnalyzeRestored = false;
-                if (Avatar != null && RecordedState != null && RecordedState.AppliedToAvatar)
-                {
-                    var restore = SceneTextureApplier.Restore(Avatar, RecordedState);
-                    LastAnalyzeRestored = restore.Success;
-                    string restoreError;
-                    GeneratedAssetStore.SetApplicationState(
-                        RootKey, false, false, string.Empty,
-                        new List<AppliedRendererBinding>(), new List<AppliedMaterialClone>(),
-                        new List<AppliedAnimationBinding>(), out restoreError);
-                }
-
                 var options = new ScanOptions();
+                options.RecordedState = RecordedState;
                 Report = AvatarScanner.Scan(Avatar, options);
                 if (Report == null || !Report.ScanSucceeded)
                 {
@@ -495,15 +482,39 @@ namespace AvatarTuner.Editor.UI
             }
 
             var outcome = SceneTextureApplier.Restore(Avatar, RecordedState);
-            string storeError;
-            GeneratedAssetStore.SetApplicationState(
-                RootKey, false, false, string.Empty,
-                new List<AppliedRendererBinding>(), new List<AppliedMaterialClone>(),
-                new List<AppliedAnimationBinding>(), out storeError);
+            string storeError = null;
+
+            if (outcome.Success)
+            {
+                if (outcome.Partial)
+                {
+                    RecordedState.AppliedToAvatar = true;
+                    RecordedState.AppliedPartially = true;
+                    GeneratedAssetStore.SetApplicationState(
+                        RootKey, true, true, RecordedState.AppliedUtc,
+                        RecordedState.RendererBindings, RecordedState.MaterialClones,
+                        RecordedState.AnimationBindings, out storeError);
+                }
+                else
+                {
+                    RecordedState.AppliedToAvatar = false;
+                    RecordedState.AppliedPartially = false;
+                    GeneratedAssetStore.SetApplicationState(
+                        RootKey, false, false, string.Empty,
+                        new List<AppliedRendererBinding>(), new List<AppliedMaterialClone>(),
+                        new List<AppliedAnimationBinding>(), out storeError);
+                }
+            }
+
             RefreshStatus();
             if (!string.IsNullOrEmpty(outcome.ErrorKey))
             {
                 return outcome.ErrorKey;
+            }
+
+            if (outcome.Partial)
+            {
+                return "build.error.partialApplication";
             }
 
             return string.IsNullOrEmpty(storeError) ? null : storeError;

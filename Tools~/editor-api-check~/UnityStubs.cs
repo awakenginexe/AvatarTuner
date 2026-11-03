@@ -63,6 +63,21 @@ namespace UnityEngine
         MiddleCenter = 4
     }
 
+    public enum TextureWrapMode
+    {
+        Repeat = 0,
+        Clamp = 1,
+        Mirror = 2,
+        MirrorOnce = 3
+    }
+
+    public enum FilterMode
+    {
+        Point = 0,
+        Bilinear = 1,
+        Trilinear = 2
+    }
+
     public enum ScaleMode
     {
         StretchToFill = 0,
@@ -214,6 +229,11 @@ namespace UnityEngine
             return Array.Empty<T>();
         }
 
+        public Component[] GetComponents(Type type)
+        {
+            return Array.Empty<Component>();
+        }
+
         public T[] GetComponentsInChildren<T>(bool includeInactive) where T : Component
         {
             return Array.Empty<T>();
@@ -232,6 +252,16 @@ namespace UnityEngine
         {
             return Array.Empty<T>();
         }
+
+        public Component[] GetComponents(Type type)
+        {
+            return Array.Empty<Component>();
+        }
+
+        public T[] GetComponents<T>() where T : Component
+        {
+            return Array.Empty<T>();
+        }
     }
 
     public class Shader : Object
@@ -241,6 +271,9 @@ namespace UnityEngine
     public class Material : Object
     {
         public Shader shader { get; set; }
+        public string[] shaderKeywords { get; set; } = Array.Empty<string>();
+        public int renderQueue { get; set; }
+        public void CopyPropertiesFromMaterial(Material mat) { }
         public string[] GetTexturePropertyNames() { return Array.Empty<string>(); }
         public Texture GetTexture(string name) { return null; }
         public void SetTexture(string name, Texture value) { }
@@ -285,9 +318,14 @@ namespace UnityEngine
     public class AnimatorOverrideController : RuntimeAnimatorController
     {
         public int overridesCount { get; set; }
+        public RuntimeAnimatorController runtimeAnimatorController { get; set; }
 
         // Real signature: fills the list, returns void.
         public void GetOverrides(List<KeyValuePair<AnimationClip, AnimationClip>> overrides)
+        {
+        }
+
+        public void ApplyOverrides(IList<KeyValuePair<AnimationClip, AnimationClip>> overrides)
         {
         }
     }
@@ -710,6 +748,8 @@ namespace UnityEditor
         public static bool DisplayDialog(string title, string message, string ok, string cancel) { return true; }
         public static bool DisplayDialog(string title, string message, string ok) { return true; }
         public static void RevealInFinder(string path) { }
+        public static void SetDirty(Object target) { }
+        public static void CopySerialized(Object source, Object dest) { }
         public static string SaveFilePanel(string title, string directory, string defaultName, string extension)
         {
             return string.Empty;
@@ -829,6 +869,14 @@ namespace UnityEditor
         public TextureImporterAlphaSource alphaSource { get; set; }
         public bool convertToNormalmap { get; set; }
         public float heightmapScale { get; set; }
+        public FilterMode filterMode { get; set; }
+        public int anisoLevel { get; set; }
+        public TextureWrapMode wrapMode { get; set; }
+        public TextureWrapMode wrapModeU { get; set; }
+        public TextureWrapMode wrapModeV { get; set; }
+        public TextureWrapMode wrapModeW { get; set; }
+        public bool streamingMipmaps { get; set; }
+        public bool borderMipmap { get; set; }
 
         public bool DoesSourceTextureHaveAlpha() { return false; }
 

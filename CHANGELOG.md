@@ -4,6 +4,25 @@ All notable changes to AvatarTuner are documented here, newest version first.
 Release notes are written for users; the GitHub Release description for each version is
 extracted from the matching section below.
 
+## v1.0.1
+
+### Fixed
+
+- **Fixed textures appearing reddish or displaying incorrect colors**:
+  - MatCap and ramp textures are now recognized as full-color images and are no longer compressed into single-channel formats (such as BC4) that stripped color channels.
+  - Multi-channel packed masks (such as metallic/smoothness and mask maps) now properly retain all color and alpha data.
+  - Textures used across multiple materials now resolve safely to preserve full color instead of being forced into grayscale or mask formats.
+  - Importer settings now faithfully match original source texture color spaces (sRGB vs. linear), alpha settings, and filtering.
+- **Fixed material-swap animations in VRChat FX layers**:
+  - Fixed an issue where animation curves changing materials on avatar meshes were skipped. AvatarTuner now properly detects and remaps material swaps on renderers and across VRChat descriptor playable layers (FX).
+- **Preserved texture references during repeated optimization**:
+  - Regenerating textures now updates files in place instead of deleting them, keeping asset IDs (GUIDs) stable and preventing missing or broken material references when re-optimizing.
+- **Updated material properties on re-optimization**:
+  - Re-optimizing an avatar now refreshes generated materials with any recent changes made to the original material's colors, shader keywords, or render queues.
+- **Safe and non-destructive Analyze and Restore**:
+  - Clicking "Analyze" is now strictly read-only and no longer modifies scene references or resets tracking state.
+  - Restoring original textures now safely preserves recovery information if any avatar parts were renamed or missing, allowing you to retry without losing track of modified materials.
+
 ## v1.0.0
 
 ### What's New

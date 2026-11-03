@@ -163,6 +163,52 @@ namespace AvatarTuner.Core
             }
         }
 
+        /// <summary>Number of color/data channels represented by the format.</summary>
+        public static int ChannelCount(TunerTextureFormat format)
+        {
+            switch (format)
+            {
+                case TunerTextureFormat.BC4:
+                case TunerTextureFormat.R8:
+                case TunerTextureFormat.R16:
+                case TunerTextureFormat.RHalf:
+                case TunerTextureFormat.RFloat:
+                    return 1;
+
+                case TunerTextureFormat.BC5:
+                case TunerTextureFormat.RG16:
+                case TunerTextureFormat.RGHalf:
+                case TunerTextureFormat.RGFloat:
+                    return 2;
+
+                case TunerTextureFormat.BC1:
+                case TunerTextureFormat.BC6H:
+                case TunerTextureFormat.RGB24:
+                case TunerTextureFormat.RGB16:
+                case TunerTextureFormat.ETC2_RGB4:
+                    return 3;
+
+                case TunerTextureFormat.BC3:
+                case TunerTextureFormat.BC7:
+                case TunerTextureFormat.RGBA32:
+                case TunerTextureFormat.ARGB32:
+                case TunerTextureFormat.RGBA16:
+                case TunerTextureFormat.RGBAHalf:
+                case TunerTextureFormat.RGBAFloat:
+                case TunerTextureFormat.ETC2_RGBA8:
+                    return 4;
+
+                default:
+                    return 0;
+            }
+        }
+
+        /// <summary>True when the format stores three or more channels (RGB / RGBA color data).</summary>
+        public static bool HasColorChannels(TunerTextureFormat format)
+        {
+            return ChannelCount(format) >= 3;
+        }
+
         /// <summary>
         /// True when the format stores smooth, gradient-rich alpha. BC1's single-bit alpha is
         /// excluded because it produces hard cut-outs, and BC7/BC3 are the only block formats

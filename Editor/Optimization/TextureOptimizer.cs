@@ -128,17 +128,30 @@ namespace AvatarTuner.Editor.Optimization
             }
 
             var targetPath = BuildTargetPath(result.OutputFolder, planned);
-            if (File.Exists(targetPath))
+            bool targetAlreadyExisted = File.Exists(targetPath);
+            if (targetAlreadyExisted)
             {
-                // Only files inside the generated folder are ever deleted.
-                AssetDatabase.DeleteAsset(targetPath);
+                // Re-optimization: overwrite file in place so the .meta file and its GUID are preserved!
+                try
+                {
+                    File.Copy(sourcePath, targetPath, overwrite: true);
+                    AssetDatabase.ImportAsset(targetPath);
+                }
+                catch (Exception ex)
+                {
+                    AddError(result, "error.ioFailed", targetPath + " (" + ex.Message + ")");
+                    result.SkippedCount++;
+                    return;
+                }
             }
-
-            if (!AssetDatabase.CopyAsset(sourcePath, targetPath))
+            else
             {
-                AddError(result, "error.ioFailed", sourcePath);
-                result.SkippedCount++;
-                return;
+                if (!AssetDatabase.CopyAsset(sourcePath, targetPath))
+                {
+                    AddError(result, "error.ioFailed", sourcePath);
+                    result.SkippedCount++;
+                    return;
+                }
             }
 
             var importer = AssetImporter.GetAtPath(targetPath) as TextureImporter;
@@ -153,12 +166,16 @@ namespace AvatarTuner.Editor.Optimization
             if (!Enum.TryParse(importerFormatName, true, out importerFormat))
             {
                 AddError(result, "error.unsupportedConversion", importerFormatName);
-                AssetDatabase.DeleteAsset(targetPath);
+                if (!targetAlreadyExisted)
+                {
+                    AssetDatabase.DeleteAsset(targetPath);
+                }
                 result.SkippedCount++;
                 return;
             }
 
-            ApplySettings(importer, plan, importerFormat);
+            var sourceImporter = AssetImporter.GetAtPath(sourcePath) as TextureImporter;
+            ApplySettings(importer, sourceImporter, plan, importerFormat);
 
             try
             {
@@ -199,10 +216,79 @@ namespace AvatarTuner.Editor.Optimization
             result.PlannedTargetBytesTotal += plan.TargetBytes;
         }
 
-        private static void ApplySettings(TextureImporter importer, TexturePlan plan, TextureImporterFormat format)
+        private static void ApplySettings(
+            TextureImporter importer,
+            TextureImporter sourceImporter,
+            TexturePlan plan,
+            TextureImporterFormat format)
         {
             importer.maxTextureSize = plan.TargetMaxSize;
             importer.mipmapEnabled = plan.TargetMipMaps;
+
+            if (sourceImporter != null)
+            {
+                // Texture type: normal maps require NormalMap type
+                if (plan.Usage == TextureUsageKind.NormalMap || plan.TargetFormat == TunerTextureFormat.BC5 ||
+                    sourceImporter.textureType == TextureImporterType.NormalMap)
+                {
+                    importer.textureType = TextureImporterType.NormalMap;
+                    importer.convertToNormalmap = sourceImporter.convertToNormalmap;
+                    importer.heightmapScale = sourceImporter.heightmapScale;
+                }
+                else
+                {
+                    importer.textureType = sourceImporter.textureType;
+                }
+
+                // sRGB / Linear:
+                // Normal maps, BC4 and BC5 are purely linear data and must have sRGB disabled.
+                // Otherwise preserve the source texture's sRGB configuration so color interpretation is exact.
+                if (importer.textureType == TextureImporterType.NormalMap ||
+                    plan.TargetFormat == TunerTextureFormat.BC4 ||
+                    plan.TargetFormat == TunerTextureFormat.BC5)
+                {
+                    importer.sRGBTexture = false;
+                }
+                else
+                {
+                    importer.sRGBTexture = sourceImporter.sRGBTexture;
+                }
+
+                // Alpha
+                importer.alphaSource = sourceImporter.alphaSource;
+                if (!TextureFormatInfo.SupportsAlpha(plan.TargetFormat))
+                {
+                    importer.alphaIsTransparency = false;
+                }
+                else
+                {
+                    importer.alphaIsTransparency = sourceImporter.alphaIsTransparency;
+                }
+
+                // Filtering & sampling
+                importer.filterMode = sourceImporter.filterMode;
+                importer.anisoLevel = sourceImporter.anisoLevel;
+                importer.wrapMode = sourceImporter.wrapMode;
+                importer.wrapModeU = sourceImporter.wrapModeU;
+                importer.wrapModeV = sourceImporter.wrapModeV;
+                importer.wrapModeW = sourceImporter.wrapModeW;
+
+                // Mipmaps
+                importer.streamingMipmaps = sourceImporter.streamingMipmaps;
+                importer.borderMipmap = sourceImporter.borderMipmap;
+            }
+            else
+            {
+                if (plan.Usage == TextureUsageKind.NormalMap || plan.TargetFormat == TunerTextureFormat.BC5)
+                {
+                    importer.textureType = TextureImporterType.NormalMap;
+                    importer.sRGBTexture = false;
+                }
+                else if (plan.TargetFormat == TunerTextureFormat.BC4)
+                {
+                    importer.sRGBTexture = false;
+                }
+            }
 
             var settings = importer.GetPlatformTextureSettings(PlatformName);
             settings.overridden = true;

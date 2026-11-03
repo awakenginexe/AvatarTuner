@@ -357,6 +357,21 @@ namespace AvatarTuner.Core
             var needsSmoothAlpha = request.AlphaChannelUsed && request.SourceHasAlpha;
             var proposed = ProposeFormat(request.Usage, needsSmoothAlpha, policy);
 
+            // Channel safety protections: never discard required RGB or Alpha channels
+            var requiresAlpha = request.AlphaChannelUsed && request.SourceHasAlpha;
+            if (requiresAlpha && !TextureFormatInfo.SupportsAlpha(proposed))
+            {
+                proposed = policy.AllowAggressiveFormats ? TunerTextureFormat.BC3 : TunerTextureFormat.BC7;
+            }
+
+            var requiresColor = TextureUsageClassifier.IsColorUsage(request.Usage) ||
+                                (request.CurrentFormatKnown && TextureFormatInfo.HasColorChannels(current) &&
+                                 request.Usage != TextureUsageKind.NormalMap && request.Usage != TextureUsageKind.GreyscaleData);
+            if (requiresColor && !TextureFormatInfo.HasColorChannels(proposed))
+            {
+                proposed = policy.AllowAggressiveFormats && !requiresAlpha ? TunerTextureFormat.BC1 : TunerTextureFormat.BC7;
+            }
+
             if (proposed == current)
             {
                 plan.AddNote("plan.note.formatAlreadyAppropriate", TextureFormatInfo.DisplayName(current));
@@ -385,7 +400,8 @@ namespace AvatarTuner.Core
         /// Chooses an output format for a usage. The mapping is intentionally short and
         /// explicit so it can be reviewed line by line:
         ///   normal map              -> BC5   (two channels, the standard normal format)
-        ///   data / mask / greyscale -> BC4   (one channel) or BC5 when the source has alpha
+        ///   greyscale data          -> BC4   (one channel) or BC7/BC3 when alpha is present
+        ///   data / packed mask      -> BC7/BC3 (when alpha present) or BC1/BC7 (RGB preserved)
         ///   emission                -> BC7   (HDR-ish colour, keeps gradients)
         ///   albedo with alpha       -> BC7   (quality) or BC3 when aggressive formats allowed
         ///   albedo opaque           -> BC7   (quality) or BC1 when aggressive formats allowed
@@ -400,10 +416,22 @@ namespace AvatarTuner.Core
                     return TunerTextureFormat.BC5;
 
                 case TextureUsageKind.GreyscaleData:
-                    return TunerTextureFormat.BC4;
+                    // Single channel data only uses BC4 when alpha is not present.
+                    // If alpha is present, BC4 would strip it; use BC7 (or BC3 on aggressive).
+                    return needsSmoothAlpha
+                        ? (policy.AllowAggressiveFormats ? TunerTextureFormat.BC3 : TunerTextureFormat.BC7)
+                        : TunerTextureFormat.BC4;
 
                 case TextureUsageKind.DataMask:
-                    return needsSmoothAlpha ? TunerTextureFormat.BC5 : TunerTextureFormat.BC4;
+                    // Multi-channel/packed masks: preserve all channels.
+                    // If alpha is present, BC7/BC3 preserves RGBA.
+                    // If no alpha, BC1 on aggressive preserves RGB in 8 bytes (same size as BC4!),
+                    // while BC7 on Quality/Balanced preserves RGB in 16 bytes.
+                    if (needsSmoothAlpha)
+                    {
+                        return policy.AllowAggressiveFormats ? TunerTextureFormat.BC3 : TunerTextureFormat.BC7;
+                    }
+                    return policy.AllowAggressiveFormats ? TunerTextureFormat.BC1 : TunerTextureFormat.BC7;
 
                 case TextureUsageKind.Emission:
                     return TunerTextureFormat.BC7;
@@ -596,7 +624,6 @@ namespace AvatarTuner.Core
             {
                 plan.HasMeasuredPsnr = true;
                 plan.MeasuredPsnrDb = quality.MeasuredPsnrDb;
-                plan.Confidence = QualityConfidence.High;
                 plan.AddNote("plan.note.qualityMeasured",
                     quality.MeasuredPsnrDb.ToString("0.0", CultureInfo.InvariantCulture));
 
@@ -605,13 +632,68 @@ namespace AvatarTuner.Core
                     plan.AddWarning("plan.warning.measuredQualityBelowThreshold",
                         quality.MeasuredPsnrDb.ToString("0.0", CultureInfo.InvariantCulture),
                         policy.MinEstimatedQualityDb.ToString("0.0", CultureInfo.InvariantCulture));
+                    plan.Confidence = QualityConfidence.Low;
+
+                    if (plan.FormatChanged)
+                    {
+                        var fallback = FallbackSafeFormat(plan.TargetFormat, request, policy);
+                        if (fallback != plan.TargetFormat)
+                        {
+                            plan.TargetFormat = fallback;
+                            plan.FormatChanged = plan.TargetFormat != request.CurrentFormat;
+                            if (plan.FormatChanged)
+                            {
+                                plan.AddNote("plan.note.formatProposed",
+                                    TextureFormatInfo.DisplayName(request.CurrentFormat),
+                                    TextureFormatInfo.DisplayName(fallback));
+                            }
+                            else
+                            {
+                                plan.AddNote("plan.note.formatAlreadyAppropriate",
+                                    TextureFormatInfo.DisplayName(request.CurrentFormat));
+                            }
+                        }
+                        else
+                        {
+                            plan.TargetFormat = request.CurrentFormat;
+                            plan.FormatChanged = false;
+                            plan.AddNote("plan.note.formatAlreadyAppropriate",
+                                TextureFormatInfo.DisplayName(request.CurrentFormat));
+                        }
+                    }
+
+                    if (plan.ResolutionChanged)
+                    {
+                        plan.TargetMaxSize = EffectiveCurrentMaxSize(request);
+                        plan.TargetWidth = plan.SourceWidth;
+                        plan.TargetHeight = plan.SourceHeight;
+                        plan.ResolutionChanged = false;
+                        for (var i = plan.Notes.Count - 1; i >= 0; i--)
+                        {
+                            if (plan.Notes[i].Key == "plan.note.resolutionReduced")
+                            {
+                                plan.Notes.RemoveAt(i);
+                            }
+                        }
+                    }
+
+                    if (!plan.FormatChanged && !plan.ResolutionChanged && !plan.MipMapChanged)
+                    {
+                        plan.IsNoOp = true;
+                        plan.SkipReasonKey = "plan.skip.alreadyOptimal";
+                    }
+
+                    ComputeSavings(plan, request);
+                }
+                else
+                {
+                    plan.Confidence = QualityConfidence.High;
                 }
             }
             else if (quality.HasEstimatedPsnr)
             {
                 plan.HasEstimatedPsnr = true;
                 plan.EstimatedPsnrDb = quality.EstimatedPsnrDb;
-                plan.Confidence = QualityConfidence.Medium;
                 plan.AddNote("plan.note.qualityEstimated",
                     quality.EstimatedPsnrDb.ToString("0.0", CultureInfo.InvariantCulture));
 
@@ -621,6 +703,43 @@ namespace AvatarTuner.Core
                         quality.EstimatedPsnrDb.ToString("0.0", CultureInfo.InvariantCulture),
                         policy.MinEstimatedQualityDb.ToString("0.0", CultureInfo.InvariantCulture));
                     plan.Confidence = QualityConfidence.Low;
+
+                    var fallback = FallbackSafeFormat(plan.TargetFormat, request, policy);
+                    if (fallback != plan.TargetFormat)
+                    {
+                        plan.TargetFormat = fallback;
+                        plan.FormatChanged = plan.TargetFormat != request.CurrentFormat;
+                        if (plan.FormatChanged)
+                        {
+                            plan.AddNote("plan.note.formatProposed",
+                                TextureFormatInfo.DisplayName(request.CurrentFormat),
+                                TextureFormatInfo.DisplayName(fallback));
+                        }
+                        else
+                        {
+                            plan.AddNote("plan.note.formatAlreadyAppropriate",
+                                TextureFormatInfo.DisplayName(request.CurrentFormat));
+                        }
+                    }
+                    else
+                    {
+                        plan.TargetFormat = request.CurrentFormat;
+                        plan.FormatChanged = false;
+                        plan.AddNote("plan.note.formatAlreadyAppropriate",
+                            TextureFormatInfo.DisplayName(request.CurrentFormat));
+                    }
+
+                    if (!plan.FormatChanged && !plan.ResolutionChanged && !plan.MipMapChanged)
+                    {
+                        plan.IsNoOp = true;
+                        plan.SkipReasonKey = "plan.skip.alreadyOptimal";
+                    }
+
+                    ComputeSavings(plan, request);
+                }
+                else
+                {
+                    plan.Confidence = QualityConfidence.Medium;
                 }
             }
             else
@@ -653,6 +772,20 @@ namespace AvatarTuner.Core
             {
                 plan.AddWarning("plan.warning.detailTextureResized");
             }
+        }
+
+        private static TunerTextureFormat FallbackSafeFormat(
+            TunerTextureFormat currentTarget, TexturePlanRequest request, TexturePolicy policy)
+        {
+            if (currentTarget == TunerTextureFormat.BC1 || currentTarget == TunerTextureFormat.BC3)
+            {
+                if (TextureFormatInfo.IsSupportedOnPc(TunerTextureFormat.BC7))
+                {
+                    return TunerTextureFormat.BC7;
+                }
+            }
+
+            return request.CurrentFormat;
         }
     }
 }

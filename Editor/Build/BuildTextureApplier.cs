@@ -13,6 +13,7 @@
 using System;
 using System.Collections.Generic;
 using AvatarTuner.Core;
+using AvatarTuner.Editor.Analysis;
 using AvatarTuner.Editor.Tracking;
 using UnityEditor;
 using UnityEngine;
@@ -344,7 +345,44 @@ namespace AvatarTuner.Editor.Build
                     var bindings = AnimationUtility.GetObjectReferenceCurveBindings(clip);
                     for (var b = 0; b < bindings.Length; b++)
                     {
-                        if (bindings[b].type != typeof(Material))
+                        if (!AvatarScanner.IsMaterialBinding(bindings[b]))
+                        {
+                            continue;
+                        }
+
+                        var keys = AnimationUtility.GetObjectReferenceCurve(clip, bindings[b]);
+                        for (var k = 0; k < keys.Length; k++)
+                        {
+                            var material = keys[k].value as Material;
+                            if (material != null)
+                            {
+                                guids.Add(MaterialGuidOf(material));
+                            }
+                        }
+                    }
+                }
+            }
+
+            var descriptorControllers = AvatarScanner.CollectDescriptorControllers(cloneRoot);
+            for (var d = 0; d < descriptorControllers.Count; d++)
+            {
+                var controller = descriptorControllers[d];
+                if (controller == null)
+                {
+                    continue;
+                }
+
+                foreach (var clip in ClipsOf(controller))
+                {
+                    if (clip == null)
+                    {
+                        continue;
+                    }
+
+                    var bindings = AnimationUtility.GetObjectReferenceCurveBindings(clip);
+                    for (var b = 0; b < bindings.Length; b++)
+                    {
+                        if (!AvatarScanner.IsMaterialBinding(bindings[b]))
                         {
                             continue;
                         }

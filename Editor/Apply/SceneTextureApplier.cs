@@ -124,14 +124,24 @@ namespace AvatarTuner.Editor.Apply
         /// <summary>Tracks scene changes so a failed application can roll them back.</summary>
         private sealed class RollbackTracker
         {
+            private struct DescriptorRollbackEntry
+            {
+                public Component Descriptor;
+                public string FieldName;
+                public int Index;
+                public RuntimeAnimatorController Original;
+            }
+
             private readonly List<KeyValuePair<Renderer, KeyValuePair<int, Material>>> _renderers =
                 new List<KeyValuePair<Renderer, KeyValuePair<int, Material>>>();
             private readonly List<KeyValuePair<Animator, RuntimeAnimatorController>> _animators =
                 new List<KeyValuePair<Animator, RuntimeAnimatorController>>();
+            private readonly List<DescriptorRollbackEntry> _descriptors =
+                new List<DescriptorRollbackEntry>();
 
             public bool HasChanges
             {
-                get { return _renderers.Count > 0 || _animators.Count > 0; }
+                get { return _renderers.Count > 0 || _animators.Count > 0 || _descriptors.Count > 0; }
             }
 
             public void Track(Renderer renderer, int slotIndex, Material original)
@@ -143,6 +153,17 @@ namespace AvatarTuner.Editor.Apply
             public void Track(Animator animator, RuntimeAnimatorController original)
             {
                 _animators.Add(new KeyValuePair<Animator, RuntimeAnimatorController>(animator, original));
+            }
+
+            public void TrackDescriptor(Component descriptor, string fieldName, int index, RuntimeAnimatorController original)
+            {
+                _descriptors.Add(new DescriptorRollbackEntry
+                {
+                    Descriptor = descriptor,
+                    FieldName = fieldName,
+                    Index = index,
+                    Original = original
+                });
             }
 
             /// <summary>Reassigns every tracked reference back to its original (Undo-recorded).</summary>
@@ -183,9 +204,51 @@ namespace AvatarTuner.Editor.Apply
                     PrefabUtility.RecordPrefabInstancePropertyModifications(entry.Key);
                 }
 
+                for (var i = 0; i < _descriptors.Count; i++)
+                {
+                    var entry = _descriptors[i];
+                    if (entry.Descriptor == null)
+                    {
+                        continue;
+                    }
+
+                    var field = entry.Descriptor.GetType().GetField(entry.FieldName,
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    if (field == null)
+                    {
+                        continue;
+                    }
+
+                    var array = field.GetValue(entry.Descriptor) as Array;
+                    if (array == null || entry.Index < 0 || entry.Index >= array.Length)
+                    {
+                        continue;
+                    }
+
+                    var layer = array.GetValue(entry.Index);
+                    if (layer == null)
+                    {
+                        continue;
+                    }
+
+                    var ctrlField = layer.GetType().GetField("animatorController",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    if (ctrlField == null)
+                    {
+                        continue;
+                    }
+
+                    Undo.RecordObject(entry.Descriptor, "AvatarTuner: Roll back failed application");
+                    ctrlField.SetValue(layer, entry.Original);
+                    array.SetValue(layer, entry.Index);
+                    field.SetValue(entry.Descriptor, array);
+                    PrefabUtility.RecordPrefabInstancePropertyModifications(entry.Descriptor);
+                }
+
                 Debug.LogWarning("[AvatarTuner] rolled back " + _renderers.Count +
-                                 " renderer assignment(s) and " + _animators.Count +
-                                 " animator change(s) after a failed application.");
+                                 " renderer assignment(s), " + _animators.Count +
+                                 " animator change(s) and " + _descriptors.Count +
+                                 " descriptor layer change(s) after a failed application.");
             }
         }
 
@@ -247,6 +310,20 @@ namespace AvatarTuner.Editor.Apply
                             return;
                         }
                     }
+                    else
+                    {
+                        // Refresh the existing material clone from the source material so that any changes to the
+                        // original material (shader, colors, floats, vectors, keywords, renderQueue) are refreshed,
+                        // while keeping the clone's stable asset GUID intact.
+                        var sourceMat = AssetDatabase.LoadAssetAtPath<Material>(step.OriginalMaterialPath);
+                        if (sourceMat != null)
+                        {
+                            clone.shader = sourceMat.shader;
+                            clone.CopyPropertiesFromMaterial(sourceMat);
+                            clone.shaderKeywords = sourceMat.shaderKeywords;
+                            clone.renderQueue = sourceMat.renderQueue;
+                        }
+                    }
 
                     for (var s = 0; s < step.Slots.Count; s++)
                     {
@@ -262,6 +339,8 @@ namespace AvatarTuner.Editor.Apply
 
                         clone.SetTexture(slot.Property, texture);
                     }
+
+                    EditorUtility.SetDirty(clone);
 
                     cloneByGuid[step.OriginalMaterialGuid] = clone;
                     outcome.ClonedMaterials++;
@@ -442,29 +521,77 @@ namespace AvatarTuner.Editor.Apply
                 return;
             }
 
-            var controllerClone = AssetDatabase.LoadAssetAtPath<AnimatorController>(step.GeneratedControllerPath);
-            if (controllerClone == null)
+            RuntimeAnimatorController finalClonedRuntimeController = null;
+            var isOverride = step.OriginalControllerPath.EndsWith(".overrideController", StringComparison.OrdinalIgnoreCase);
+            if (isOverride)
             {
-                if (!AssetDatabase.CopyAsset(step.OriginalControllerPath, step.GeneratedControllerPath))
+                var overrideClone = AssetDatabase.LoadAssetAtPath<AnimatorOverrideController>(step.GeneratedControllerPath);
+                if (overrideClone == null)
                 {
-                    outcome.Partial = true;
-                    outcome.Findings.Add(new Build.PlanFinding(
-                        "apply.warn.animUnresolvable", step.OriginalControllerPath));
-                    return;
+                    if (!AssetDatabase.CopyAsset(step.OriginalControllerPath, step.GeneratedControllerPath))
+                    {
+                        outcome.Partial = true;
+                        outcome.Findings.Add(new Build.PlanFinding(
+                            "apply.warn.animUnresolvable", step.OriginalControllerPath));
+                        return;
+                    }
+
+                    overrideClone = AssetDatabase.LoadAssetAtPath<AnimatorOverrideController>(step.GeneratedControllerPath);
+                    if (overrideClone == null)
+                    {
+                        outcome.Partial = true;
+                        return;
+                    }
                 }
 
-                controllerClone = AssetDatabase.LoadAssetAtPath<AnimatorController>(step.GeneratedControllerPath);
+                var overrides = new List<KeyValuePair<AnimationClip, AnimationClip>>();
+                overrideClone.GetOverrides(overrides);
+                var updatedOverrides = new List<KeyValuePair<AnimationClip, AnimationClip>>(overrides.Count);
+                for (var o = 0; o < overrides.Count; o++)
+                {
+                    var origClip = overrides[o].Key;
+                    var currentOverride = overrides[o].Value != null ? overrides[o].Value : origClip;
+                    AnimationClip remappedClip;
+                    var origPath = AssetDatabase.GetAssetPath(currentOverride);
+                    if (!string.IsNullOrEmpty(origPath) && clipMap.TryGetValue(origPath, out remappedClip) && remappedClip != null)
+                    {
+                        updatedOverrides.Add(new KeyValuePair<AnimationClip, AnimationClip>(origClip, remappedClip));
+                    }
+                    else
+                    {
+                        updatedOverrides.Add(overrides[o]);
+                    }
+                }
+                overrideClone.ApplyOverrides(updatedOverrides);
+                finalClonedRuntimeController = overrideClone;
+            }
+            else
+            {
+                var controllerClone = AssetDatabase.LoadAssetAtPath<AnimatorController>(step.GeneratedControllerPath);
                 if (controllerClone == null)
                 {
-                    outcome.Partial = true;
-                    return;
-                }
-            }
+                    if (!AssetDatabase.CopyAsset(step.OriginalControllerPath, step.GeneratedControllerPath))
+                    {
+                        outcome.Partial = true;
+                        outcome.Findings.Add(new Build.PlanFinding(
+                            "apply.warn.animUnresolvable", step.OriginalControllerPath));
+                        return;
+                    }
 
-            var layers = controllerClone.layers;
-            for (var i = 0; i < layers.Length; i++)
-            {
-                RemapStateMachine(layers[i].stateMachine, clipMap);
+                    controllerClone = AssetDatabase.LoadAssetAtPath<AnimatorController>(step.GeneratedControllerPath);
+                    if (controllerClone == null)
+                    {
+                        outcome.Partial = true;
+                        return;
+                    }
+                }
+
+                var layers = controllerClone.layers;
+                for (var i = 0; i < layers.Length; i++)
+                {
+                    RemapStateMachine(layers[i].stateMachine, clipMap);
+                }
+                finalClonedRuntimeController = controllerClone;
             }
 
             var controllerGenerated = new GeneratedAssetState
@@ -477,18 +604,29 @@ namespace AvatarTuner.Editor.Apply
             outcome.ClonedControllers++;
 
             var animator = FindByHierarchyPath<Animator>(avatar, step.AnimatorPath);
-            if (animator == null)
+            if (animator != null)
             {
-                outcome.Partial = true;
-                outcome.Findings.Add(new Build.PlanFinding(
-                    "apply.warn.animUnresolvable", step.AnimatorPath));
-                return;
+                Undo.RecordObject(animator, "AvatarTuner: Apply remapped controller");
+                rollback.Track(animator, animator.runtimeAnimatorController);
+                animator.runtimeAnimatorController = finalClonedRuntimeController;
+                PrefabUtility.RecordPrefabInstancePropertyModifications(animator);
             }
-
-            Undo.RecordObject(animator, "AvatarTuner: Apply remapped controller");
-            rollback.Track(animator, animator.runtimeAnimatorController);
-            animator.runtimeAnimatorController = controllerClone;
-            PrefabUtility.RecordPrefabInstancePropertyModifications(animator);
+            else
+            {
+                // Check if the controller is bound on an AvatarDescriptor component (e.g. VRChat FX layer)
+                var descriptor = FindAvatarDescriptor(avatar, step.AnimatorPath);
+                if (descriptor != null && TryReassignDescriptorController(descriptor, step.OriginalControllerPath, finalClonedRuntimeController, rollback))
+                {
+                    PrefabUtility.RecordPrefabInstancePropertyModifications(descriptor);
+                }
+                else
+                {
+                    outcome.Partial = true;
+                    outcome.Findings.Add(new Build.PlanFinding(
+                        "apply.warn.animUnresolvable", step.AnimatorPath));
+                    return;
+                }
+            }
         }
 
         private static void RemapStateMachine(
@@ -554,7 +692,7 @@ namespace AvatarTuner.Editor.Apply
             var bindings = AnimationUtility.GetObjectReferenceCurveBindings(clone);
             for (var b = 0; b < bindings.Length; b++)
             {
-                if (bindings[b].type != typeof(Material))
+                if (!AvatarScanner.IsMaterialBinding(bindings[b]))
                 {
                     continue;
                 }
@@ -606,6 +744,10 @@ namespace AvatarTuner.Editor.Apply
 
             try
             {
+                var totalTargets = recorded.RendererBindings.Count + recorded.AnimationBindings.Count;
+                var restoredCount = 0;
+                var remainingRendererBindings = new List<AppliedRendererBinding>();
+
                 for (var i = 0; i < recorded.RendererBindings.Count; i++)
                 {
                     var binding = recorded.RendererBindings[i];
@@ -613,6 +755,8 @@ namespace AvatarTuner.Editor.Apply
                     if (renderer == null)
                     {
                         outcome.Partial = true;
+                        outcome.Findings.Add(new Build.PlanFinding("restore.warn.rendererMissing", binding.RendererPath));
+                        remainingRendererBindings.Add(binding);
                         continue;
                     }
 
@@ -621,6 +765,8 @@ namespace AvatarTuner.Editor.Apply
                     if (original == null)
                     {
                         outcome.Partial = true;
+                        outcome.Findings.Add(new Build.PlanFinding("restore.warn.materialMissing", binding.OriginalMaterialGuid));
+                        remainingRendererBindings.Add(binding);
                         continue;
                     }
 
@@ -628,6 +774,7 @@ namespace AvatarTuner.Editor.Apply
                     if (binding.SlotIndex < 0 || binding.SlotIndex >= materials.Length)
                     {
                         outcome.Partial = true;
+                        remainingRendererBindings.Add(binding);
                         continue;
                     }
 
@@ -636,8 +783,10 @@ namespace AvatarTuner.Editor.Apply
                     renderer.sharedMaterials = materials;
                     PrefabUtility.RecordPrefabInstancePropertyModifications(renderer);
                     outcome.AssignedSlots++;
+                    restoredCount++;
                 }
 
+                var remainingAnimationBindings = new List<AppliedAnimationBinding>();
                 for (var i = 0; i < recorded.AnimationBindings.Count; i++)
                 {
                     var binding = recorded.AnimationBindings[i];
@@ -646,21 +795,58 @@ namespace AvatarTuner.Editor.Apply
                         continue;
                     }
 
-                    var animator = FindByHierarchyPath<Animator>(avatar, binding.AnimatorPath);
                     var original = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(
                         binding.OriginalControllerPath);
-                    if (animator == null || original == null)
+                    if (original == null)
                     {
                         outcome.Partial = true;
+                        outcome.Findings.Add(new Build.PlanFinding("restore.warn.controllerMissing", binding.OriginalControllerPath));
+                        remainingAnimationBindings.Add(binding);
                         continue;
                     }
 
-                    Undo.RecordObject(animator, "AvatarTuner: Restore original controller");
-                    animator.runtimeAnimatorController = original;
-                    PrefabUtility.RecordPrefabInstancePropertyModifications(animator);
+                    var animator = FindByHierarchyPath<Animator>(avatar, binding.AnimatorPath);
+                    if (animator != null)
+                    {
+                        Undo.RecordObject(animator, "AvatarTuner: Restore original controller");
+                        animator.runtimeAnimatorController = original;
+                        PrefabUtility.RecordPrefabInstancePropertyModifications(animator);
+                        outcome.ClonedControllers++;
+                        restoredCount++;
+                    }
+                    else
+                    {
+                        // Check if it was bound on an AvatarDescriptor
+                        var descriptor = FindAvatarDescriptor(avatar, binding.AnimatorPath);
+                        if (descriptor != null && TryReassignDescriptorController(descriptor, binding.GeneratedControllerPath, original, null))
+                        {
+                            PrefabUtility.RecordPrefabInstancePropertyModifications(descriptor);
+                            outcome.ClonedControllers++;
+                            restoredCount++;
+                        }
+                        else
+                        {
+                            outcome.Partial = true;
+                            outcome.Findings.Add(new Build.PlanFinding("restore.warn.animatorMissing", binding.AnimatorPath));
+                            remainingAnimationBindings.Add(binding);
+                        }
+                    }
                 }
 
-                outcome.Success = true;
+                if (totalTargets > 0 && restoredCount == 0)
+                {
+                    outcome.Success = false;
+                    outcome.ErrorKey = "apply.error.applyFailed";
+                }
+                else
+                {
+                    outcome.Success = true;
+                    recorded.RendererBindings.Clear();
+                    recorded.RendererBindings.AddRange(remainingRendererBindings);
+                    recorded.AnimationBindings.Clear();
+                    recorded.AnimationBindings.AddRange(remainingAnimationBindings);
+                }
+
                 return outcome;
             }
             catch (Exception ex)
@@ -768,6 +954,8 @@ namespace AvatarTuner.Editor.Apply
         private static void GatherAnimationMaterials(GameObject avatar, ApplicationInput input)
         {
             var animators = avatar.GetComponentsInChildren<Animator>(true);
+            var seenControllers = new HashSet<RuntimeAnimatorController>();
+
             for (var i = 0; i < animators.Length; i++)
             {
                 var controller = animators[i].runtimeAnimatorController;
@@ -776,48 +964,153 @@ namespace AvatarTuner.Editor.Apply
                     continue;
                 }
 
+                seenControllers.Add(controller);
                 var controllerPath = AssetDatabase.GetAssetPath(controller);
                 var animatorPath = HierarchyPathOf(animators[i].transform, avatar.transform);
+                GatherControllerAnimationMaterials(controller, controllerPath, animatorPath, input);
+            }
 
-                foreach (var clip in ClipsOf(controller))
+            var descriptorControllers = AvatarScanner.CollectDescriptorControllers(avatar);
+            var rootPath = HierarchyPathOf(avatar.transform, avatar.transform);
+            for (var d = 0; d < descriptorControllers.Count; d++)
+            {
+                var controller = descriptorControllers[d];
+                if (controller == null || seenControllers.Contains(controller))
                 {
-                    if (clip == null)
+                    continue;
+                }
+
+                seenControllers.Add(controller);
+                var controllerPath = AssetDatabase.GetAssetPath(controller);
+                GatherControllerAnimationMaterials(controller, controllerPath, rootPath, input);
+            }
+        }
+
+        private static void GatherControllerAnimationMaterials(
+            RuntimeAnimatorController controller,
+            string controllerPath,
+            string animatorPath,
+            ApplicationInput input)
+        {
+            foreach (var clip in ClipsOf(controller))
+            {
+                if (clip == null)
+                {
+                    continue;
+                }
+
+                var clipPath = AssetDatabase.GetAssetPath(clip);
+                var bindings = AnimationUtility.GetObjectReferenceCurveBindings(clip);
+                for (var b = 0; b < bindings.Length; b++)
+                {
+                    if (!AvatarScanner.IsMaterialBinding(bindings[b]))
                     {
                         continue;
                     }
 
-                    var clipPath = AssetDatabase.GetAssetPath(clip);
-                    var bindings = AnimationUtility.GetObjectReferenceCurveBindings(clip);
-                    for (var b = 0; b < bindings.Length; b++)
+                    var keys = AnimationUtility.GetObjectReferenceCurve(clip, bindings[b]);
+                    for (var k = 0; k < keys.Length; k++)
                     {
-                        if (bindings[b].type != typeof(Material))
+                        var material = keys[k].value as Material;
+                        if (material == null)
                         {
                             continue;
                         }
 
-                        var keys = AnimationUtility.GetObjectReferenceCurve(clip, bindings[b]);
-                        for (var k = 0; k < keys.Length; k++)
+                        var materialPath = AssetDatabase.GetAssetPath(material);
+                        input.AnimationMaterials.Add(new AnimationMaterialRow
                         {
-                            var material = keys[k].value as Material;
-                            if (material == null)
-                            {
-                                continue;
-                            }
+                            ClipPath = clipPath,
+                            ControllerPath = controllerPath,
+                            AnimatorPath = animatorPath,
+                            MaterialGuid = string.IsNullOrEmpty(materialPath)
+                                ? string.Empty
+                                : AssetDatabase.AssetPathToGUID(materialPath)
+                        });
+                    }
+                }
+            }
+        }
 
-                            var materialPath = AssetDatabase.GetAssetPath(material);
-                            input.AnimationMaterials.Add(new AnimationMaterialRow
+        private static Component FindAvatarDescriptor(GameObject avatar, string path)
+        {
+            var target = FindByHierarchyPath<Transform>(avatar, path);
+            var go = target != null ? target.gameObject : avatar;
+            if (go == null)
+            {
+                return null;
+            }
+
+            var components = go.GetComponents<Component>();
+            for (var i = 0; i < components.Length; i++)
+            {
+                if (components[i] != null &&
+                    components[i].GetType().Name.IndexOf("AvatarDescriptor", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return components[i];
+                }
+            }
+
+            return null;
+        }
+
+        private static bool TryReassignDescriptorController(
+            Component descriptor,
+            string originalControllerPath,
+            RuntimeAnimatorController newController,
+            RollbackTracker rollback)
+        {
+            if (descriptor == null)
+            {
+                return false;
+            }
+
+            var type = descriptor.GetType();
+            var fields = type.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            for (var f = 0; f < fields.Length; f++)
+            {
+                var field = fields[f];
+                if (field.Name == "baseAnimationLayers" || field.Name == "specialAnimationLayers")
+                {
+                    var array = field.GetValue(descriptor) as Array;
+                    if (array == null)
+                    {
+                        continue;
+                    }
+
+                    for (var a = 0; a < array.Length; a++)
+                    {
+                        var layer = array.GetValue(a);
+                        if (layer == null)
+                        {
+                            continue;
+                        }
+
+                        var ctrlField = layer.GetType().GetField("animatorController",
+                            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                        if (ctrlField != null)
+                        {
+                            var currentCtrl = ctrlField.GetValue(layer) as RuntimeAnimatorController;
+                            var currentPath = AssetDatabase.GetAssetPath(currentCtrl);
+                            if (string.Equals(currentPath, originalControllerPath, StringComparison.OrdinalIgnoreCase))
                             {
-                                ClipPath = clipPath,
-                                ControllerPath = controllerPath,
-                                AnimatorPath = animatorPath,
-                                MaterialGuid = string.IsNullOrEmpty(materialPath)
-                                    ? string.Empty
-                                    : AssetDatabase.AssetPathToGUID(materialPath)
-                            });
+                                Undo.RecordObject(descriptor, "AvatarTuner: Apply remapped controller");
+                                if (rollback != null)
+                                {
+                                    rollback.TrackDescriptor(descriptor, field.Name, a, currentCtrl);
+                                }
+
+                                ctrlField.SetValue(layer, newController);
+                                array.SetValue(layer, a);
+                                field.SetValue(descriptor, array);
+                                return true;
+                            }
                         }
                     }
                 }
             }
+
+            return false;
         }
 
         private static IEnumerable<AnimationClip> ClipsOf(RuntimeAnimatorController controller)

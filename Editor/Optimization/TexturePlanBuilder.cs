@@ -334,7 +334,11 @@ namespace AvatarTuner.Editor.Optimization
             request.Usage = entry.Usage;
             request.SourceHasAlpha = entry.HasAlphaChannel;
             request.AlphaChannelUsed = entry.AlphaIsTransparency ||
-                                      entry.Usage == TextureUsageKind.AlbedoWithAlpha;
+                                      entry.Usage == TextureUsageKind.AlbedoWithAlpha ||
+                                      (entry.HasAlphaChannel && (entry.Usage == TextureUsageKind.DataMask ||
+                                                                entry.Usage == TextureUsageKind.Unknown ||
+                                                                entry.Usage == TextureUsageKind.Detail ||
+                                                                entry.Usage == TextureUsageKind.Emission));
             request.ImporterTypeIsNormalMap = entry.IsNormalMap;
             request.FaceCount = 1;
 
