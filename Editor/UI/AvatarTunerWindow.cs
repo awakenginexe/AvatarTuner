@@ -814,9 +814,18 @@ namespace AvatarTuner.Editor.UI
             zone.RegisterCallback<DragPerformEvent>(evt =>
             {
                 StyleDropZone(zone, DropZoneTone.Normal);
+
+                // UI Toolkit events are consumed with StopPropagation()/PreventDefault()
+                // (EventBase has no Use(); that is IMGUI's Event.Use()).
+                void Consume()
+                {
+                    evt.StopPropagation();
+                    evt.PreventDefault();
+                }
+
                 if (!panel.Enabled)
                 {
-                    evt.Use();
+                    Consume();
                     return;
                 }
 
@@ -825,13 +834,13 @@ namespace AvatarTuner.Editor.UI
                 {
                     DragAndDrop.visualMode = DragAndDropVisualMode.Rejected;
                     SetSelectionMessage("ui.drop.invalidType", true);
-                    evt.Use();
+                    Consume();
                     RefreshView();
                     return;
                 }
 
                 DragAndDrop.AcceptDrag();
-                evt.Use();
+                Consume();
                 AcceptCandidate(dragged);
             });
 

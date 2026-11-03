@@ -1,6 +1,6 @@
 # AvatarTuner v1.0.0 — Progress
 
-Status label: **Milestones 1–7 implemented | UI/UX redesign complete | avatar-selection regression fixed | 215 offline tests green | awaiting user's manual Unity test** (target for release)
+Status label: **Milestones 1–7 implemented | UI/UX redesign complete | avatar-selection regression fixed | Unity compile round-3 CS1061 (`DragPerformEvent.Use()`) fixed offline | 217 offline tests green | awaiting user's round-4 Unity compile + manual Unity test** (target for release)
 
 Development workspace: `C:/Users/ANXE/Desktop/Coding/AvatarTuner`
 Hard rules honored: Unity is never launched, no Unity project is opened or modified,
@@ -250,9 +250,9 @@ cd Tests/Standalone~
 dotnet run --project AvatarTuner.StandaloneTests.csproj
 ```
 
-Last result: **215 passed, 0 failed, 0 skipped** (148 inherited + 15 CompatibilityTests +
+Last result: **217 passed, 0 failed, 0 skipped** (148 inherited + 15 CompatibilityTests +
 15 PlanBuilderTests + 11 TrackingTests + 1 Unity-format-spelling regression test +
-6 WindowFlowTests + 15 ViewModelTests + 4 AvatarSelectionTests).
+6 WindowFlowTests + 15 ViewModelTests + 4 AvatarSelectionTests + 2 EditorApiHygieneTests).
 
 The **entire** `Editor/` source tree (AvatarScanner, CompatibilityScanner, TextureOptimizer,
 GeneratedAssetStore, ChangeTrackingService, UnityFingerprintProvider, AvatarAnalysisModel,
@@ -260,9 +260,23 @@ UiStrings, UiTheme, AvatarTunerController, AvatarTunerWindow, WindowFlow, the Vi
 the plan builder and tracking policy files) is additionally type-checked offline against
 Unity 2022.3 API stubs whose signatures mirror the real API — including its quirks
 (`GetSourceTextureWidthAndHeight` returns void, `Texture` has no `format`, `Transform`
-derives from `Component`, `CreateGUI` is a magic method). This harness is how the round-1
-Unity errors are pre-verified and how the UI Toolkit window is compile-checked; it is not
-the same as real Unity compilation.
+derives from `Component`, `CreateGUI` is a magic method, and UI Toolkit's `EventBase` has
+**no** `Use()` — only `StopPropagation` / `StopImmediatePropagation` / `PreventDefault`).
+The harness now lives in the repo at `Tools~/editor-api-check~/` (Unity never imports a
+`~`-suffixed folder) and runs with:
+
+```bash
+dotnet build Tools~/editor-api-check~/EditorApiCheck.csproj
+```
+
+Stub fidelity rule (enforced since the round-3 fix): a stub member that the real API lacks
+turns a real Unity compile error into a silent offline pass, so the stubs model the real
+class hierarchy (`EventBase` → `MouseEventBase<T>` → `DragAndDropEventBase<T>` for drag
+events) and `VisualElement.RegisterCallback<T>` only accepts `EventBase`-derived events.
+A negative check reproduces the round-3 regression offline: code calling
+`DragPerformEvent.Use()` now fails the stub build with the same CS1061 Unity reports.
+This harness is how API misuse is pre-verified and how the UI Toolkit window is
+compile-checked; it is **not** the same as real Unity compilation.
 
 ## Real Unity compile round 1 (user-run, Unity 2022.3.22f1) — findings & fixes
 
@@ -295,6 +309,41 @@ three fixes above are verified in real Unity. Round 2 additionally reported that
 Tools menu entry was missing (see the Milestone 7 section — no MenuItem had been
 implemented).
 
+## Real Unity compile round 3 (user-run, Unity 2022.3.22f1) — findings & fixes
+
+The user compiled the package after commit `46af311` (avatar-selection regression fix).
+Unity reported three errors, all CS1061 in `Editor/UI/AvatarTunerWindow.cs` — and nothing
+else in the package failed, which confirms the rest of the redesigned UI Toolkit window
+(including `ObjectField`, `ChangeEvent`, `GeometryChangedEvent` and `titleContent` usage)
+compiles against the real 2022.3 API:
+
+| # | Reported | Root cause | Fix (offline, awaiting user re-test) |
+|---|----------|------------|--------------------------------------|
+| 1–3 | CS1061 `DragPerformEvent does not contain a definition for 'Use'` (L819/L828/L834) | `evt.Use()` is IMGUI's `Event.Use()`; UI Toolkit's `EventBase` has no `Use()`. Introduced by `46af311`, which also documented the wrong API ("DragAndDropEventBase ... Use()") and taught the offline stubs the same invented member, so the error slipped through the offline harness | Each site now consumes the event the UI Toolkit way: `evt.StopPropagation()` + `evt.PreventDefault()` (verified against the Unity 2022.3 `EventBase` ScriptReference: `Dispose` / `PreventDefault` / `StopImmediatePropagation` / `StopPropagation` only) |
+
+All drop behavior is unchanged (requirement): `panel.Enabled` gating, `DraggedGameObject()`
+validation (only a dragged `GameObject` is accepted), `DragAndDrop.visualMode`
+(`Copy` for valid / `Rejected` for invalid), `DragAndDrop.AcceptDrag()` **only** for a
+valid GameObject, non-GameObject drops rejected with `ui.drop.invalidType`, and
+`AcceptCandidate` → shared `AvatarTunerController.Select` validation afterwards.
+
+IMGUI/UI Toolkit mix-up sweep over the whole `Editor/` assembly (requirement): only the
+three `evt.Use()` sites matched. `titleContent = new GUIContent(...)` and the
+`EditorGUIUtility` statics are correct `EditorWindow` APIs (not event handling), and no
+`Event.current` / `EventType` / `OnGUI` / `GUILayout` usage exists anywhere in `Editor/`.
+
+Guard hardening (requirement): the offline stubs now model the real event hierarchy
+(`EventBase` with no `Use()` → `MouseEventBase<T>` → `DragAndDropEventBase<T>`), constrain
+`RegisterCallback<T>` to `EventBase`-derived events, and the harness moved from the
+throwaway temp workspace into the repo (`Tools~/editor-api-check~/`, commit-honored, Unity
+invisible). A negative check compiles a `DragPerformEvent.Use()` call against the stubs and
+reproduces Unity's exact CS1061 — that mistake can no longer pass the offline check. Two
+`EditorApiHygieneTests` additionally pin it at source level (no `.Use()` in `Editor/`;
+drop zone keeps validation / rejection / `AcceptDrag` / localized rejection key).
+
+**Status: FIXED OFFLINE — NOT yet verified in Unity.** Awaiting the user's round-4 manual
+Unity 2022.3.22f1 compile and the drag-and-drop acceptance test. No Unity was launched.
+
 ## Defects found and fixed by tests / review (real bugs, not test churn)
 
 1. `TranslationCatalog.Format` / `UnescapeBraces` infinite recursion on templates without arguments.
@@ -314,6 +363,12 @@ implemented).
 7. `CompatibilityPolicy` matching is substring based, and `d4rkAvatarOptimizer` contains
    `AvatarOptimizer`. Registry order is match priority, so d4rkAvatarOptimizer must precede
    Avatar Optimizer or every d4rk component resolves to the wrong tool. Fixed + regression test.
+8. The offline Unity API stubs invented `Use()` on the UI Toolkit drag events (following the
+   same wrong API claim that caused the round-3 compile error), which silently converted a
+   real Unity compile error (CS1061) into an offline pass. The stubs now mirror the real
+   `EventBase` hierarchy with no invented members — verified by a negative check that makes
+   the stub build reproduce Unity's CS1061 — and `EditorApiHygieneTests` bans `.Use()` in
+   `Editor/` sources outright.
 
 ## Next steps (exact)
 
@@ -331,7 +386,9 @@ implemented).
 ## Pending Unity-dependent verification (never run, never claimed)
 
 - Unity 2022.3 compilation — round 1 found 3 errors in `AvatarScanner.cs`; fixes are
-  **confirmed clean by the user's round-2 compile (0 errors)**
+  **confirmed clean by the user's round-2 compile (0 errors)**. Round 3 found 3 CS1061
+  errors (`DragPerformEvent.Use()`) in `AvatarTunerWindow.cs`; fixes are **done offline,
+  awaiting the user's round-4 compile**
 - The **avatar selection workflow** (user's acceptance test): drag the `meropan` root from
   Hierarchy and see it selected immediately; Object Picker and "Use Selected Avatar" work;
   Analyze becomes available; drop zone survives Clear Selection; validation messages and

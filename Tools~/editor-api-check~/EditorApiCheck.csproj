@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Offline type-check for the AvatarTuner Editor glue code against Unity 2022.3 API stubs.
+
+    This is NOT part of the shipped package (the `~` suffix hides it from Unity's importer)
+    and never touches a Unity installation. Run it from the repo root:
+
+        dotnet build Tools~/editor-api-check~/EditorApiCheck.csproj
+
+    Any compile error here is a compile error in real Unity too - as long as UnityStubs.cs
+    stays honest (no members the real API lacks; see its header comment).
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="UnityStubs.cs" />
+    <Compile Include="..\..\Core\**\*.cs" />
+    <Compile Include="..\..\Editor\Analysis\AvatarAnalysisModel.cs" />
+    <Compile Include="..\..\Editor\Analysis\AvatarScanner.cs" />
+    <Compile Include="..\..\Editor\Analysis\CompatibilityScanner.cs" />
+    <Compile Include="..\..\Editor\Optimization\TextureFormatMapping.cs" />
+    <Compile Include="..\..\Editor\Optimization\TexturePlanBuilder.cs" />
+    <Compile Include="..\..\Editor\Optimization\TextureGenerationModels.cs" />
+    <Compile Include="..\..\Editor\Optimization\TextureOptimizer.cs" />
+    <Compile Include="..\..\Editor\Tracking\*.cs" />
+    <Compile Include="..\..\Editor\UI\*.cs" />
+    <Compile Include="..\..\Editor\UI\ViewModels\*.cs" />
+  </ItemGroup>
+
+</Project>
