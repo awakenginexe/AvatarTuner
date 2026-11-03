@@ -174,8 +174,3 @@ AvatarTuner 根据资源数据与优化设置计算纹理显存。这些数值�
 ## 开源许可证
 
 [MIT](LICENSE) — Copyright (c) 2026 Awake Ngine XE
-
-## 相关链接
-
-- 仓库：<https://github.com/awakenginexe/AvatarTuner>
-- 开发者：<https://awakenginexe.com/>

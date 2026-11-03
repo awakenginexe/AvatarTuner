@@ -174,8 +174,3 @@ AvatarTuner คำนวณ Texture Memory ใน Unity Editor จากข้�
 ## License
 
 [MIT](LICENSE) — Copyright (c) 2026 Awake Ngine XE.
-
-## ช่องทางติดต่อและลิงก์อื่น ๆ
-
-- Repository: <https://github.com/awakenginexe/AvatarTuner>
-- เว็บไซต์ผู้พัฒนา: <https://awakenginexe.com/>

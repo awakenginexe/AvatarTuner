@@ -224,8 +224,3 @@ d4rkAvatarOptimizer. No third-party source code is bundled.
 ## License
 
 [MIT](LICENSE) — Copyright (c) 2026 Awake Ngine XE.
-
-## Links
-
-- Repository: <https://github.com/awakenginexe/AvatarTuner>
-- Developer: <https://awakenginexe.com/>
