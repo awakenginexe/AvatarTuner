@@ -350,6 +350,9 @@ namespace AvatarTuner.StandaloneTests
         [Test("current memory values only known references and never invents")]
         public static void CurrentMemoryNeverInvents()
         {
+            bool untrackedKnown;
+            ApplicationPlanner.ComputeCurrentBytes(null, null, new[] { string.Empty }, out untrackedKnown);
+            Assert.IsFalse(untrackedKnown, "a referenced texture without a persistent identity makes memory incomplete");
             var source = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
             {
                 { "tex-a", 1000 }

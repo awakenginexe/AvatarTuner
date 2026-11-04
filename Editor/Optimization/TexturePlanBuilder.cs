@@ -185,15 +185,29 @@ namespace AvatarTuner.Editor.Optimization
                     : AdaptivePlanner.Select(BuildRequest(entry), policy, effectiveOverride,
                         planned.EffectiveSettings.Settings, planned.Category,
                         evaluate == null ? null : candidate => evaluate(entry, candidate));
-                long importedSourceBytes;
-                if (entry.CurrentMipCount > 0 && ImportedTextureMemory.TryEstimateBytes(entry.Width, entry.Height,
-                    texturePlan.SourceFormat, entry.CurrentMipCount, entry.CurrentFaceCount, out importedSourceBytes))
+                // Candidate selection retains physical GPU arithmetic; displayed totals follow the SDK.
+                var sourceMipCount = entry.CurrentMipCount > 0 ? entry.CurrentMipCount :
+                    entry.Width > 0 && entry.Height > 0 ? (entry.MipMapsEnabled ? VramCalculator.MipLevelCount(entry.Width, entry.Height) : 1) : 0;
+                long reportedBytes = 0;
+                var sourceKnown = entry.CurrentFormatKnown && VrcTextureMemory.TryEstimateBytes(entry.Width, entry.Height,
+                    texturePlan.SourceFormat, sourceMipCount, entry.CurrentFaceCount, out reportedBytes);
+                texturePlan.SourceBytes = sourceKnown ? reportedBytes : 0;
+                texturePlan.SourceBytesKnown = sourceKnown;
+                if (texturePlan.IsNoOp)
                 {
-                    texturePlan.SourceBytes = importedSourceBytes;
-                    if (texturePlan.IsNoOp) texturePlan.TargetBytes = importedSourceBytes;
-                    texturePlan.SavingBytes = texturePlan.SourceBytes - texturePlan.TargetBytes;
-                    texturePlan.SavingPercent = SavingPercentOf(texturePlan.SourceBytes, texturePlan.TargetBytes);
+                    texturePlan.TargetBytes = texturePlan.SourceBytes;
+                    texturePlan.TargetBytesKnown = sourceKnown;
                 }
+                else
+                {
+                    var targetMipCount = texturePlan.TargetMipMaps ? VramCalculator.MipLevelCount(texturePlan.TargetWidth, texturePlan.TargetHeight) : 1;
+                    texturePlan.TargetBytesKnown = VrcTextureMemory.TryEstimateBytes(texturePlan.TargetWidth, texturePlan.TargetHeight,
+                        texturePlan.TargetFormat, targetMipCount, 1, out reportedBytes);
+                    texturePlan.TargetBytes = texturePlan.TargetBytesKnown ? reportedBytes : 0;
+                }
+                texturePlan.SavingUnknown = !sourceKnown || !texturePlan.TargetBytesKnown;
+                texturePlan.SavingBytes = texturePlan.SourceBytes - texturePlan.TargetBytes;
+                texturePlan.SavingPercent = SavingPercentOf(texturePlan.SourceBytes, texturePlan.TargetBytes);
 
                 if (planned.ProtectedByThirdParty)
                 {

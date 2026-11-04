@@ -524,6 +524,8 @@
     "workspace.memory.PlannedEstimate": "Planned Estimate",
     "workspace.memory.ImportedResult": "Imported Result",
     "workspace.memory.VRChatVerifiedResult": "VRChat Verified Result",
+    "workspace.memory.currentSdk": "Current avatar: VRChat SDK performance calculation (MB).",
+    "workspace.memory.currentEstimate": "Current avatar: SDK-compatible estimate; SDK readout unavailable.",
     "workspace.memoryUnknown": "Unknown or incomplete texture memory ({0} source / {1} output textures unknown).",
     "workspace.open": "Advanced Optimize",
     "workspace.quick": "Quick Optimize",

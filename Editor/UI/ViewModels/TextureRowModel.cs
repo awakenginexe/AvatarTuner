@@ -51,9 +51,11 @@ namespace AvatarTuner.Editor.ViewModels
         public string TargetFormatText;
 
         public long SourceBytes;
+        public bool SourceBytesKnown;
         public long TargetBytes;
         public long SavingBytes;
         public double SavingPercent;
+        public bool SavingUnknown;
 
         public TextureRowStatus Status;
 
@@ -139,9 +141,11 @@ namespace AvatarTuner.Editor.ViewModels
             row.SkipReasonKey = plan.SkipReasonKey;
             row.Notes.AddRange(plan.Notes);
             row.SourceBytes = plan.SourceBytes;
+            row.SourceBytesKnown = plan.SourceBytesKnown || plan.SourceBytes > 0;
             row.TargetBytes = plan.TargetBytes;
             row.SavingBytes = plan.SavingBytes;
             row.SavingPercent = plan.SavingPercent;
+            row.SavingUnknown = plan.SavingUnknown;
 
             if (plan.FormatChanged &&
                 plan.TargetFormat != TunerTextureFormat.Automatic &&

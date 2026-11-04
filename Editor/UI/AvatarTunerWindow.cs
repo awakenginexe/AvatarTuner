@@ -1106,6 +1106,8 @@ namespace AvatarTuner.Editor.UI
         private static void AddMemoryBasis(VisualElement parent, MemoryNumbers numbers)
         {
             parent.Add(Message(UiStrings.T("workspace.memory." + numbers.Basis), UiTheme.Neutral));
+            if (numbers.HasCurrent)
+                parent.Add(Message(UiStrings.T(numbers.CurrentFromSdk ? "workspace.memory.currentSdk" : "workspace.memory.currentEstimate"), UiTheme.Neutral));
             if (numbers.UnknownSourceCount > 0 || numbers.UnknownOutputCount > 0)
                 parent.Add(Message(UiStrings.T("workspace.memoryUnknown",
                     numbers.UnknownSourceCount.ToString(CultureInfo.InvariantCulture),
@@ -1330,7 +1332,7 @@ namespace AvatarTuner.Editor.UI
 
             row.Add(Cell("at-col-w70", model.Width + "×" + model.Height, UiTheme.TextSecondary));
             row.Add(Cell("at-col-w110", FormatCell(model), UiTheme.Text));
-            row.Add(Cell("at-col-w95", TextureFormatInfo.FormatBytes(model.SourceBytes), UiTheme.Text));
+            row.Add(Cell("at-col-w95", model.SourceBytesKnown ? TextureFormatInfo.FormatTextureMemory(model.SourceBytes) : "—", UiTheme.Text));
             row.Add(Cell("at-col-w80", SavingCell(model),
                 model.SavingBytes > 0 ? UiTheme.Success : UiTheme.TextSecondary));
             row.Add(RiskCell("at-col-w110", model.Risk));
@@ -1378,12 +1380,12 @@ namespace AvatarTuner.Editor.UI
 
         private static string SavingCell(TextureRowModel model)
         {
-            if (!model.HasChanges || model.SavingBytes <= 0)
+            if (model.SavingUnknown || !model.HasChanges || model.SavingBytes <= 0)
             {
                 return "—";
             }
 
-            return TextureFormatInfo.FormatBytes(model.SavingBytes) + " (" +
+            return TextureFormatInfo.FormatTextureMemory(model.SavingBytes) + " (" +
                    model.SavingPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%)";
         }
 
@@ -2052,7 +2054,7 @@ namespace AvatarTuner.Editor.UI
                 var row = new VisualElement();
                 row.AddToClassList("at-row");
                 row.Add(Cell("at-col-name", asset.SourcePath ?? string.Empty, UiTheme.TextSecondary));
-                row.Add(Cell("at-col-w110", TextureFormatInfo.FormatBytes(asset.PlannedTargetBytes), UiTheme.Text));
+                row.Add(Cell("at-col-w110", TextureFormatInfo.FormatTextureMemory(asset.PlannedTargetBytes), UiTheme.Text));
 
                 var sourcePath = asset.SourcePath;
                 var generatedPath = asset.GeneratedPath;

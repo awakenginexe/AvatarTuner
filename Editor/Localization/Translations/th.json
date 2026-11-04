@@ -524,6 +524,8 @@
     "workspace.memory.PlannedEstimate": "ค่าประมาณตามแผน",
     "workspace.memory.ImportedResult": "ผลลัพธ์ที่นำเข้าแล้ว",
     "workspace.memory.VRChatVerifiedResult": "ผลลัพธ์ที่ตรวจสอบใน VRChat แล้ว",
+    "workspace.memory.currentSdk": "โมเดลปัจจุบัน: คำนวณโดยระบบประเมินประสิทธิภาพของ VRChat SDK (MB)",
+    "workspace.memory.currentEstimate": "โมเดลปัจจุบัน: ค่าประมาณตามสูตร SDK (ไม่สามารถอ่านค่าจาก SDK ได้)",
     "workspace.memoryUnknown": "หน่วยความจำเทกซ์เจอร์ไม่ทราบหรือไม่ครบถ้วน (ต้นฉบับ {0} / ผลลัพธ์ {1} รายการไม่ทราบค่า)",
     "workspace.open": "ปรับแต่งขั้นสูง",
     "workspace.quick": "ปรับแต่งด่วน",

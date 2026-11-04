@@ -524,6 +524,8 @@
     "workspace.memory.PlannedEstimate": "计划估算值",
     "workspace.memory.ImportedResult": "已导入结果",
     "workspace.memory.VRChatVerifiedResult": "VRChat 验证结果",
+    "workspace.memory.currentSdk": "当前模型：VRChat SDK 性能计算值（MB）。",
+    "workspace.memory.currentEstimate": "当前模型：按 SDK 公式估算，无法读取 SDK 结果。",
     "workspace.memoryUnknown": "纹理显存未知或不完整（未知源纹理 {0} 个 / 输出纹理 {1} 个）。",
     "workspace.open": "高级优化",
     "workspace.quick": "快速优化",

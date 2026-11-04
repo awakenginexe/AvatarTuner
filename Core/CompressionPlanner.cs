@@ -130,6 +130,7 @@ namespace AvatarTuner.Core
 
         public long SourceBytes;
         public long TargetBytes;
+        public bool SourceBytesKnown, TargetBytesKnown;
         public long SavingBytes;
         public double SavingPercent;
 

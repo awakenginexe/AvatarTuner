@@ -87,7 +87,7 @@ namespace AvatarTuner.StandaloneTests
                 if (insights[i].MessageKey == "ui.insight.potentialSaving")
                 {
                     foundSaving = true;
-                    Assert.AreEqual("5 MiB", insights[i].Args[0], "the saving is formatted in MiB");
+                    Assert.AreEqual("5 MB", insights[i].Args[0], "the saving uses SDK MB formatting");
                     Assert.AreEqual("31.5%", insights[i].Args[1], "the percent is exact");
                 }
 

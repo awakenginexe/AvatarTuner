@@ -26,6 +26,7 @@
     <Compile Include="..\..\Core\**\*.cs" />
     <Compile Include="..\..\Editor\Analysis\AvatarAnalysisModel.cs" />
     <Compile Include="..\..\Editor\Analysis\AnalysisRevision.cs" />
+    <Compile Include="..\..\Editor\Analysis\VrcPerformanceReader.cs" />
     <Compile Include="..\..\Editor\Analysis\AvatarScanner.cs" />
     <Compile Include="..\..\Editor\Analysis\CompatibilityScanner.cs" />
     <Compile Include="..\..\Editor\Optimization\TextureFormatMapping.cs" />

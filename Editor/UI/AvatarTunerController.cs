@@ -86,6 +86,7 @@ namespace AvatarTuner.Editor.UI
 
         /// <summary>True when every currently referenced texture could be valued.</summary>
         public bool HasCurrentTextureBytes;
+        public bool CurrentTextureBytesFromSdk;
 
         /// <summary>True when the last analysis restored original references first.</summary>
         public bool LastAnalyzeRestored;
@@ -123,6 +124,7 @@ namespace AvatarTuner.Editor.UI
             ApplicationDriftEntries.Clear();
             ApplicationFindings.Clear();
             HasCurrentTextureBytes = false;
+            CurrentTextureBytesFromSdk = false;
             CurrentTextureBytes = 0;
             LastAnalyzeRestored = false;
             ClearError();
@@ -769,6 +771,7 @@ namespace AvatarTuner.Editor.UI
                 ApplyHealth = ApplicationHealth.NotApplied;
                 ApplicationDriftEntries.Clear();
                 HasCurrentTextureBytes = false;
+                CurrentTextureBytesFromSdk = false;
                 CurrentTextureBytes = 0;
                 if (Avatar != null)
                 {
@@ -785,6 +788,7 @@ namespace AvatarTuner.Editor.UI
                     var actualBytes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
                     foreach (var guid in observedTextures)
                     {
+                        if (string.IsNullOrEmpty(guid)) continue;
                         long bytes;
                         if (TextureOptimizer.TryImportedBytes(AssetDatabase.GUIDToAssetPath(guid), out bytes)) actualBytes[guid] = bytes;
                     }
@@ -792,6 +796,14 @@ namespace AvatarTuner.Editor.UI
                     CurrentTextureBytes = ApplicationPlanner.ComputeCurrentBytes(
                         actualBytes, new Dictionary<string, long>(), observedTextures, out allKnown);
                     HasCurrentTextureBytes = allKnown;
+                    long sdkBytes;
+                    if (VrcPerformanceReader.TryRead(Avatar, Avatar.name,
+                        EditorUserBuildSettings.activeBuildTarget == BuildTarget.Android, out sdkBytes))
+                    {
+                        CurrentTextureBytes = sdkBytes;
+                        HasCurrentTextureBytes = true;
+                        CurrentTextureBytesFromSdk = true;
+                    }
                 }
             }
             catch (Exception ex)
@@ -929,10 +941,10 @@ namespace AvatarTuner.Editor.UI
                 numbers = recorded.HasOutput ? recorded : MemoryReportModel.Build(Report, Plan, null);
             }
 
-            // Current memory reflects what the avatar references right now (post-application
-            // or not), computed from references - never presented as a measurement.
+            // Prefer the installed SDK's current-avatar calculation over the local fallback.
             numbers.HasCurrent = HasCurrentTextureBytes;
             numbers.CurrentBytes = CurrentTextureBytes;
+            numbers.CurrentFromSdk = CurrentTextureBytesFromSdk;
             return numbers;
         }
 

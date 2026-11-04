@@ -54,6 +54,7 @@ namespace AvatarTuner.Editor.ViewModels
 
         /// <summary>True when every currently referenced texture could be valued.</summary>
         public bool HasCurrent;
+        public bool CurrentFromSdk;
 
         // ---- per-texture counts of the same run/plan
         public int OptimizedCount;
@@ -65,7 +66,7 @@ namespace AvatarTuner.Editor.ViewModels
     /// <summary>
     /// Display strings for the before/after/saving trio. The three values are rounded to a
     /// shared unit and the saving is the exact difference of the two displayed values, so
-    /// "249.18 MiB - 43.86 MiB" is shown as "205.32 MiB" and never a rounding artifact.
+    /// "249.18 MB - 43.86 MB" is shown as "205.32 MB" and never a rounding artifact.
     /// </summary>
     public sealed class MemoryTrio
     {
@@ -120,21 +121,26 @@ namespace AvatarTuner.Editor.ViewModels
                     (!string.IsNullOrEmpty(item.TexturePath) && !seenPaths.Add(item.TexturePath))) continue;
                 var decision = item.Plan;
                 if (decision == null) { numbers.UnknownSourceCount++; numbers.UnknownOutputCount++; continue; }
-                bool sourceKnown = decision.SourceBytes > 0;
+                bool sourceKnown = decision.SourceBytesKnown || decision.SourceBytes > 0;
                 if (sourceKnown) numbers.SourceBytes += decision.SourceBytes;
                 else numbers.UnknownSourceCount++;
                 GeneratedTextureAsset asset = null;
                 if (generation != null && !string.IsNullOrEmpty(item.TextureGuid)) byGuid.TryGetValue(item.TextureGuid, out asset);
                 if (generation != null && asset == null && !string.IsNullOrEmpty(item.TexturePath)) byPath.TryGetValue(item.TexturePath, out asset);
                 long output;
+                bool outputKnown;
                 if (asset != null)
                 {
                     matchedGenerated++;
-                    if (asset.ImportedBytesKnown && asset.ImportedBytes > 0) output = asset.ImportedBytes;
-                    else { output = asset.PlannedTargetBytes; allImported = false; }
+                    if (asset.ImportedBytesKnown && asset.ImportedBytes >= 0) { output = asset.ImportedBytes; outputKnown = true; }
+                    else { output = asset.PlannedTargetBytes; outputKnown = decision.TargetBytesKnown || output > 0; allImported = false; }
                 }
-                else output = generation == null ? decision.TargetBytes : decision.SourceBytes;
-                if (output > 0) numbers.OutputBytes += output;
+                else
+                {
+                    output = generation == null ? decision.TargetBytes : decision.SourceBytes;
+                    outputKnown = generation == null ? decision.TargetBytesKnown || output > 0 : sourceKnown;
+                }
+                if (outputKnown) numbers.OutputBytes += output;
                 else numbers.UnknownOutputCount++;
             }
             numbers.HasSource = numbers.UnknownSourceCount == 0;
@@ -162,7 +168,7 @@ namespace AvatarTuner.Editor.ViewModels
         public static MemoryNumbers FromRecordedState(AvatarOptimizationState recorded)
         {
             var numbers = new MemoryNumbers();
-            if (recorded == null) return numbers;
+            if (recorded == null || recorded.MemoryAccountingVersion != VrcTextureMemory.AccountingVersion) return numbers;
             numbers.HasSource = recorded.HasSource;
             numbers.SourceBytes = recorded.SourceBytesTotal;
             numbers.HasOutput = recorded.HasOutput;
@@ -191,31 +197,33 @@ namespace AvatarTuner.Editor.ViewModels
         public static MemoryTrio FormatTrio(MemoryNumbers numbers)
         {
             var trio = new MemoryTrio();
-            if (numbers == null || !numbers.HasSource)
+            if (numbers == null)
             {
                 return trio;
             }
 
-            long unit;
-            var scale = PickUnit(Math.Max(numbers.SourceBytes, Math.Max(numbers.OutputBytes, numbers.SavingBytes)), out unit);
-
-            var before = Round2(numbers.SourceBytes / scale);
-            var after = numbers.HasOutput ? Round2(numbers.OutputBytes / scale) : 0.0;
-            var saving = Round2(before - after);
-
-            trio.BeforeText = FormatValue(before, unit);
-            trio.HasAfter = numbers.HasOutput;
-            trio.AfterText = numbers.HasOutput ? FormatValue(after, unit) : string.Empty;
-            trio.SavingText = numbers.HasOutput ? FormatValue(saving, unit) : string.Empty;
-            trio.SavingPercentText = numbers.HasOutput
-                ? numbers.SavingPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%"
-                : string.Empty;
-
             trio.HasCurrent = numbers.HasCurrent;
             if (numbers.HasCurrent)
             {
-                trio.CurrentText = FormatValue(Round2(numbers.CurrentBytes / scale), unit);
+                trio.CurrentText = FormatValue(TextureMegabytes(numbers.CurrentBytes));
             }
+
+            if (!numbers.HasSource)
+            {
+                return trio;
+            }
+
+            var before = TextureMegabytes(numbers.SourceBytes);
+            var after = numbers.HasOutput ? TextureMegabytes(numbers.OutputBytes) : 0.0;
+            var saving = Round4(before - after);
+
+            trio.BeforeText = FormatValue(before);
+            trio.HasAfter = numbers.HasOutput;
+            trio.AfterText = numbers.HasOutput ? FormatValue(after) : string.Empty;
+            trio.SavingText = numbers.HasOutput ? FormatValue(saving) : string.Empty;
+            trio.SavingPercentText = numbers.HasOutput
+                ? numbers.SavingPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%"
+                : string.Empty;
 
             return trio;
         }
@@ -223,38 +231,24 @@ namespace AvatarTuner.Editor.ViewModels
         /// <summary>The unit suffix used by <see cref="FormatTrio" /> for a byte scale.</summary>
         public static string UnitName(long bytes)
         {
-            long unit;
-            PickUnit(bytes, out unit);
-            return UnitNames[unit];
+            return "MB";
         }
 
         // ===================================================================== helpers
 
-        private static readonly string[] UnitNames = { "B", "KiB", "MiB", "GiB", "TiB" };
-
-        private static double PickUnit(long bytes, out long unit)
+        private static double TextureMegabytes(long bytes)
         {
-            double scale = 1.0;
-            unit = 0;
-            var value = (double)bytes;
-            while (value >= 1024.0 && unit < UnitNames.Length - 1)
-            {
-                value /= 1024.0;
-                scale *= 1024.0;
-                unit++;
-            }
-
-            return scale;
+            return Math.Round((float)bytes / 1048576f, 4, MidpointRounding.AwayFromZero);
         }
 
-        private static double Round2(double value)
+        private static double Round4(double value)
         {
-            return Math.Round(value, 2, MidpointRounding.AwayFromZero);
+            return Math.Round(value, 4, MidpointRounding.AwayFromZero);
         }
 
-        private static string FormatValue(double value, long unit)
+        private static string FormatValue(double value)
         {
-            return value.ToString("0.##", CultureInfo.InvariantCulture) + " " + UnitNames[unit];
+            return value.ToString("0.####", CultureInfo.InvariantCulture) + " MB";
         }
 
         private static double SavingPercentOf(long sourceBytes, long outputBytes)

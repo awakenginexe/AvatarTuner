@@ -345,6 +345,7 @@ namespace AvatarTuner.Core
         public bool HasSource, HasOutput;
         public int UnknownSourceCount, UnknownOutputCount;
         public MemoryReportBasis Basis;
+        public int MemoryAccountingVersion = VrcTextureMemory.AccountingVersion;
 
         /// <summary>Textures that received a generated output.</summary>
         public int OptimizedCount;
@@ -457,6 +458,7 @@ namespace AvatarTuner.Core
             dict["outputBytesTotal"] = OutputBytesTotal;
             dict["hasSourceMemory"] = HasSource;
             dict["hasOutputMemory"] = HasOutput;
+            dict["memoryAccountingVersion"] = (long)MemoryAccountingVersion;
             dict["unknownSourceCount"] = (long)UnknownSourceCount;
             dict["unknownOutputCount"] = (long)UnknownOutputCount;
             dict["memoryBasis"] = Basis.ToString();
@@ -536,6 +538,7 @@ namespace AvatarTuner.Core
             state.OutputBytesTotal = MiniJson.GetLong(dict, "outputBytesTotal", 0);
             state.HasSource = MiniJson.GetBool(dict, "hasSourceMemory", false);
             state.HasOutput = MiniJson.GetBool(dict, "hasOutputMemory", false);
+            state.MemoryAccountingVersion = (int)MiniJson.GetLong(dict, "memoryAccountingVersion", 0);
             state.UnknownSourceCount = (int)MiniJson.GetLong(dict, "unknownSourceCount", state.SourceBytesTotal > 0 && !dict.ContainsKey("hasSourceMemory") ? 1 : 0);
             state.UnknownOutputCount = (int)MiniJson.GetLong(dict, "unknownOutputCount", state.OutputBytesTotal > 0 && !dict.ContainsKey("hasOutputMemory") ? 1 : 0);
             MemoryReportBasis basis;

@@ -542,7 +542,12 @@ namespace AvatarTuner.Editor.Apply
             long total = 0;
             foreach (var guid in observedTextureGuids)
             {
-                if (string.IsNullOrEmpty(guid) || !seen.Add(guid))
+                if (string.IsNullOrEmpty(guid))
+                {
+                    allKnown = false;
+                    continue;
+                }
+                if (!seen.Add(guid))
                 {
                     continue;
                 }

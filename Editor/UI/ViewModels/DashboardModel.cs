@@ -39,7 +39,7 @@ namespace AvatarTuner.Editor.ViewModels
     {
         public string LabelKey;
 
-        /// <summary>Pre-formatted value text (counts, MiB values). Not localized further.</summary>
+        /// <summary>Pre-formatted value text (counts, MB values). Not localized further.</summary>
         public string Value;
 
         /// <summary>Optional localized value (status names); used when not empty.</summary>
@@ -144,12 +144,13 @@ namespace AvatarTuner.Editor.ViewModels
 
             if (plan != null)
             {
-                if (plan.SavingBytes > 0)
+                var memory = MemoryReportModel.Build(report, plan, null);
+                if (memory.HasSource && memory.HasOutput && plan.SavingBytes > 0)
                 {
                     items.Add(new InsightItem(
                         "ui.insight.potentialSaving",
                         SemanticTone.Info,
-                        TextureFormatInfo.FormatBytes(plan.SavingBytes),
+                        TextureFormatInfo.FormatTextureMemory(plan.SavingBytes),
                         plan.SavingPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%"));
                 }
 
@@ -169,7 +170,7 @@ namespace AvatarTuner.Editor.ViewModels
                         "analysis.largeTextures",
                         SemanticTone.Warning,
                         large.ToString(CultureInfo.InvariantCulture),
-                        TextureFormatInfo.FormatBytes(LargeTextureThresholdBytes)));
+                        TextureFormatInfo.FormatTextureMemory(LargeTextureThresholdBytes)));
                 }
 
                 if (plan.ProtectedCount > 0)

@@ -27,7 +27,7 @@ HDR, normal maps and ambiguous shapes are preserved when imported candidates can
 
 ## Understanding memory
 
-Planned numbers and estimates calculated from imported dimensions, format and mip count have different bases. Unknown formats or shapes make totals incomplete; shared textures are deduplicated. Neither estimate is a measurement of the built avatar, download size or disk size. Compare with VRChat's actual performance metrics and check units (MiB versus MB). Legacy manifests can be read and restored, but their measured basis is unknown and older-version outputs are stale; re-optimize to use the current version.
+Texture memory follows the VRChat SDK's format/mip arithmetic and MB convention (bytes / 1,048,576). Current Avatar Texture Memory uses the installed SDK's performance calculation when available; otherwise the UI labels it as an SDK-compatible estimate. Planned and imported-output totals remain estimates, with shared textures deduplicated and unknown formats or shapes marked incomplete. The planning inventory can include animation-only references beyond the SDK's current renderer references. These values are not built-avatar, download or disk measurements. Older saved memory totals require a fresh analysis; generated assets and restore information are retained.
 
 The 2.0.0 Unity Editor and VRChat behavior has not yet been tested. Follow the [manual testing checklist](docs/Manual-Testing-2.0.0.md) and record actual results before relying on it. Offline tests can be run with `dotnet run --project Tests/Standalone~/AvatarTuner.StandaloneTests.csproj`.
 

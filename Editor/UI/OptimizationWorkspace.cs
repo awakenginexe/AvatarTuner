@@ -152,7 +152,7 @@ namespace AvatarTuner.Editor.UI
             if (changed != null) changed();
             Refresh();
         }
-        private static string Bytes(long value) { return TextureFormatInfo.FormatBytes(value); }
+        private static string Bytes(long value) { return TextureFormatInfo.FormatTextureMemory(value); }
 
         private void BuildSettings(VisualElement parent)
         {

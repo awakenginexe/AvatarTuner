@@ -934,10 +934,9 @@ namespace AvatarTuner.Editor.Apply
                         }
 
                         var texturePath = AssetDatabase.GetAssetPath(texture);
-                        if (!string.IsNullOrEmpty(texturePath))
-                        {
-                            observedTextureGuids.Add(AssetDatabase.AssetPathToGUID(texturePath));
-                        }
+                        // An empty identity keeps transient texture references visible as unknown memory.
+                        observedTextureGuids.Add(string.IsNullOrEmpty(texturePath)
+                            ? string.Empty : AssetDatabase.AssetPathToGUID(texturePath));
                     }
                 }
             }

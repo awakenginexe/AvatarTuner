@@ -448,5 +448,11 @@ namespace AvatarTuner.Core
                 ? bytes.ToString(CultureInfo.InvariantCulture) + " B"
                 : value.ToString("0.##", CultureInfo.InvariantCulture) + " " + units[unit];
         }
+
+        /// <summary>Formats GPU texture memory using VRChat's binary-megabyte convention.</summary>
+        public static string FormatTextureMemory(long bytes)
+        {
+            return ((float)bytes / 1048576f).ToString("0.####", CultureInfo.InvariantCulture) + " MB";
+        }
     }
 }

@@ -11,9 +11,8 @@ namespace AvatarTuner.StandaloneTests
     /// <summary>
     /// The shared before/after/savings numbers. These tests pin the two real defects seen
     /// in the Unity test: the dashboard showed source memory while the plan showed the
-    /// estimate (numbers disagreeing between panels), and the displayed trio could fail
-    /// basic arithmetic because each total was rounded independently
-    /// ("249.18 MiB - 43.86 MiB = 205.33 MiB").
+    /// estimate (numbers disagreeing between panels), and displayed texture memory used
+    /// a different unit/precision from the VRChat SDK.
     /// </summary>
     public static class MemoryReportTests
     {
@@ -22,9 +21,7 @@ namespace AvatarTuner.StandaloneTests
         [Test("the displayed before/after/saving trio is internally consistent")]
         public static void TrioIsInternallyConsistent()
         {
-            // Raw values chosen so independent rounding shows the old 205.33 artifact:
-            // 249.1823 MiB and 43.8550 MiB display as 249.18 / 43.86 while the raw
-            // difference (205.3272 MiB) used to display as 205.33.
+            // The SDK converts the long total to float before dividing by 1048576f.
             var numbers = new MemoryNumbers
             {
                 HasSource = true,
@@ -36,10 +33,39 @@ namespace AvatarTuner.StandaloneTests
 
             var trio = MemoryReportModel.FormatTrio(numbers);
 
-            Assert.AreEqual("249.18 MiB", trio.BeforeText, "before shows the source total");
-            Assert.AreEqual("43.86 MiB", trio.AfterText, "after shows the output total");
-            Assert.AreEqual("205.32 MiB", trio.SavingText,
+            Assert.AreEqual("249.1815 MB", trio.BeforeText, "before shows the source total");
+            Assert.AreEqual("43.857 MB", trio.AfterText, "after shows the output total");
+            Assert.AreEqual("205.3245 MB", trio.SavingText,
                 "the saving is the difference of the DISPLAYED values, so the trio adds up");
+            Assert.AreEqual("MB", MemoryReportModel.UnitName(numbers.SourceBytes), "GPU memory has one unit");
+        }
+
+        [Test("GPU memory uses SDK binary megabytes at fixed precision")]
+        public static void TextureMemoryUsesSdkMegabytes()
+        {
+            Assert.AreEqual("1 MB", TextureFormatInfo.FormatTextureMemory(MiB), "one binary megabyte");
+            var sdkBytes = 231811737L;
+            var sdkMegabytes = (float)sdkBytes / 1048576f;
+            Assert.AreEqual("221.0729 MB", TextureFormatInfo.FormatTextureMemory(sdkBytes),
+                "known VRChat SDK display example");
+            Assert.AreEqual(sdkMegabytes.ToString("0.####", CultureInfo.InvariantCulture) + " MB",
+                TextureFormatInfo.FormatTextureMemory(sdkBytes), "matches SDK float conversion");
+            Assert.IsTrue(TextureFormatInfo.FormatTextureMemory(2L * 1024 * MiB).EndsWith(" MB", StringComparison.Ordinal),
+                "large GPU values do not switch to GiB");
+        }
+
+        [Test("known current memory displays when source memory is incomplete")]
+        public static void CurrentMemoryDoesNotRequireKnownSource()
+        {
+            var trio = MemoryReportModel.FormatTrio(new MemoryNumbers
+            {
+                HasCurrent = true,
+                CurrentBytes = 2210729L * MiB / 10000L
+            });
+
+            Assert.IsTrue(trio.HasCurrent, "current references are independently known");
+            Assert.AreEqual("221.0729 MB", trio.CurrentText, "current memory remains visible");
+            Assert.IsFalse(trio.HasAfter, "unknown source does not invent an output comparison");
         }
 
         [Test("every displayed trio subtracts exactly across many sizes")]
@@ -63,7 +89,7 @@ namespace AvatarTuner.StandaloneTests
                 var after = ParseValue(trio.AfterText);
                 var saving = ParseValue(trio.SavingText);
 
-                Assert.AreClose(before - after, saving, 0.005,
+                Assert.AreEqual(before - after, saving,
                     "displayed " + trio.BeforeText + " - " + trio.AfterText + " must be " + trio.SavingText);
 
                 if (source > long.MaxValue / 8)
@@ -230,16 +256,16 @@ namespace AvatarTuner.StandaloneTests
             var legacy = AvatarOptimizationState.FromDictionary(new Dictionary<string, object> { { "sourceBytesTotal", 100L }, { "outputBytesTotal", 50L } });
             var numbers = MemoryReportModel.FromRecordedState(legacy);
             Assert.IsFalse(numbers.HasSource || numbers.HasOutput, "legacy completeness is unknown");
-            Assert.AreEqual(100L, numbers.SourceBytes, "legacy subtotal remains available");
+            Assert.AreEqual(0L, numbers.SourceBytes, "obsolete accounting is not presented as SDK bytes");
             Assert.AreEqual(MemoryReportBasis.PlannedEstimate, numbers.Basis, "legacy totals are estimates");
         }
 
         // ===================================================================== helpers
 
-        private static double ParseValue(string text)
+        private static decimal ParseValue(string text)
         {
             var space = text.IndexOf(' ');
-            return double.Parse(text.Substring(0, space), CultureInfo.InvariantCulture);
+            return decimal.Parse(text.Substring(0, space), CultureInfo.InvariantCulture);
         }
 
         private static AvatarAnalysisReport MakeReport()

@@ -382,7 +382,7 @@ namespace AvatarTuner.Editor.Optimization
             var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             TunerTextureFormat format;
             return texture != null && TextureFormatInfo.TryParse(texture.format.ToString(), out format) &&
-                ImportedTextureMemory.TryEstimateBytes(texture.width, texture.height, format, texture.mipmapCount, 1, out bytes);
+                VrcTextureMemory.TryEstimateBytes(texture.width, texture.height, format, texture.mipmapCount, 1, out bytes);
         }
 
         private static string BuildTargetPath(string outputFolder, PlannedTexture planned)
