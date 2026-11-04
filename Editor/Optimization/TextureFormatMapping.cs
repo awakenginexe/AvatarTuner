@@ -34,8 +34,11 @@ namespace AvatarTuner.Editor.Optimization
                 { TunerTextureFormat.RFloat, "RFloat" },
                 { TunerTextureFormat.RGFloat, "RGFloat" },
                 { TunerTextureFormat.RGBAFloat, "RGBAFloat" },
-                { TunerTextureFormat.ETC2_RGB4, "ETC2_RGB" },
-                { TunerTextureFormat.ETC2_RGBA8, "ETC2_RGBA8" }
+                { TunerTextureFormat.ETC2_RGB4, "ETC2_RGB4" },
+                { TunerTextureFormat.ETC2_RGBA8, "ETC2_RGBA8" },
+                { TunerTextureFormat.ASTC_4x4, "ASTC_4x4" },
+                { TunerTextureFormat.ASTC_6x6, "ASTC_6x6" },
+                { TunerTextureFormat.ASTC_8x8, "ASTC_8x8" }
             };
 
         /// <summary>

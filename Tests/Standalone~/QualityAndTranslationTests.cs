@@ -326,8 +326,10 @@ namespace AvatarTuner.StandaloneTests
 
                 if (TextureFormatInfo.IsBlockCompressed(format))
                 {
-                    Assert.AreClose(0.0, TextureFormatInfo.BytesPerPixel(format) % 0.5, 0.0001,
-                        format + " block formats have a fractional bytes-per-pixel that is a multiple of 0.5");
+                    var blockWidth = format == TunerTextureFormat.ASTC_6x6 ? 6 :
+                        format == TunerTextureFormat.ASTC_8x8 ? 8 : 4;
+                    Assert.AreClose(TextureFormatInfo.BlockBytes(format) / (double)(blockWidth * blockWidth),
+                        TextureFormatInfo.BytesPerPixel(format), 0.0001, format + " block bytes per pixel");
                 }
             }
         }

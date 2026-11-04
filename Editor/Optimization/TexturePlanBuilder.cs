@@ -33,6 +33,9 @@ namespace AvatarTuner.Editor.Optimization
 
         /// <summary>The user override that was supplied, if any (not the effective one).</summary>
         public TextureOverride Override;
+        public SemanticCategory Category;
+        public EffectiveTextureSettings EffectiveSettings;
+        public string SourceRevision;
 
         /// <summary>True when a third-party tool or animation-driven system pins this texture.</summary>
         public bool ProtectedByThirdParty;
@@ -92,6 +95,27 @@ namespace AvatarTuner.Editor.Optimization
             IDictionary<string, TextureOverride> overrides,
             IDictionary<string, QualityEvidence> qualityByGuid)
         {
+            return BuildInternal(report, policy, overrides, qualityByGuid, null, null);
+        }
+
+        public static string AdaptiveConfigHash(TexturePolicy policy, IDictionary<string, TextureOverride> overrides,
+            OptimizationSettings settings)
+        {
+            return StableHash.CombineOrdered(new[] { ManifestStateBuilder.ConfigHash(policy, overrides), settings.ToHashToken() });
+        }
+
+        public static TextureOptimizationPlan BuildAdaptive(AvatarAnalysisReport report, TexturePolicy policy,
+            IDictionary<string, TextureOverride> overrides, OptimizationSettings settings,
+            Func<TextureEntry, TextureCandidate, CandidateQuality> evaluate)
+        {
+            if (settings == null) throw new ArgumentNullException("settings");
+            return BuildInternal(report, policy, overrides, null, settings, evaluate);
+        }
+
+        private static TextureOptimizationPlan BuildInternal(AvatarAnalysisReport report, TexturePolicy policy,
+            IDictionary<string, TextureOverride> overrides, IDictionary<string, QualityEvidence> qualityByGuid,
+            OptimizationSettings settings, Func<TextureEntry, TextureCandidate, CandidateQuality> evaluate)
+        {
             if (report == null)
             {
                 throw new ArgumentNullException("report");
@@ -103,19 +127,28 @@ namespace AvatarTuner.Editor.Optimization
             }
 
             var plan = new TextureOptimizationPlan();
-            plan.ConfigHashToken = ManifestStateBuilder.ConfigHash(policy, overrides);
+            plan.ConfigHashToken = settings == null ? ManifestStateBuilder.ConfigHash(policy, overrides)
+                : AdaptiveConfigHash(policy, overrides, settings);
             var protectedMaterials = ProtectedMaterials(report);
 
             var entries = new List<TextureEntry>(report.Textures);
             entries.Sort(CompareByPath);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             for (var i = 0; i < entries.Count; i++)
             {
                 var entry = entries[i];
+                var identity = string.IsNullOrEmpty(entry.Guid) ? entry.Path : entry.Guid;
+                if (!string.IsNullOrEmpty(identity) && !seen.Add(identity)) continue;
                 var planned = new PlannedTexture();
                 planned.TextureGuid = entry.Guid;
                 planned.TexturePath = entry.Path;
                 planned.TextureName = entry.Name;
+                planned.Category = entry.Category;
+                SemanticCategory corrected;
+                if (settings != null && settings.CategoryCorrections.TryGetValue(entry.Guid ?? string.Empty, out corrected))
+                    planned.Category = corrected;
+                planned.EffectiveSettings = settings == null ? null : settings.Resolve(entry.Guid, planned.Category);
 
                 TextureOverride userOverride = null;
                 if (overrides != null && !string.IsNullOrEmpty(entry.Guid))
@@ -147,8 +180,20 @@ namespace AvatarTuner.Editor.Optimization
                     effectiveOverride = new TextureOverride { Excluded = true };
                 }
 
-                var texturePlan = CompressionPlanner.Plan(
-                    BuildRequest(entry), policy, effectiveOverride, quality);
+                var texturePlan = settings == null
+                    ? CompressionPlanner.Plan(BuildRequest(entry), policy, effectiveOverride, quality)
+                    : AdaptivePlanner.Select(BuildRequest(entry), policy, effectiveOverride,
+                        planned.EffectiveSettings.Settings, planned.Category,
+                        evaluate == null ? null : candidate => evaluate(entry, candidate));
+                long importedSourceBytes;
+                if (entry.CurrentMipCount > 0 && ImportedTextureMemory.TryEstimateBytes(entry.Width, entry.Height,
+                    texturePlan.SourceFormat, entry.CurrentMipCount, entry.CurrentFaceCount, out importedSourceBytes))
+                {
+                    texturePlan.SourceBytes = importedSourceBytes;
+                    if (texturePlan.IsNoOp) texturePlan.TargetBytes = importedSourceBytes;
+                    texturePlan.SavingBytes = texturePlan.SourceBytes - texturePlan.TargetBytes;
+                    texturePlan.SavingPercent = SavingPercentOf(texturePlan.SourceBytes, texturePlan.TargetBytes);
+                }
 
                 if (planned.ProtectedByThirdParty)
                 {
@@ -340,7 +385,7 @@ namespace AvatarTuner.Editor.Optimization
                                                                 entry.Usage == TextureUsageKind.Detail ||
                                                                 entry.Usage == TextureUsageKind.Emission));
             request.ImporterTypeIsNormalMap = entry.IsNormalMap;
-            request.FaceCount = 1;
+            request.FaceCount = entry.CurrentFaceCount;
 
             // Re-derives the name evidence the classifier uses for detail preservation
             // (faces, eyes, small text). The verdict itself is already merged into

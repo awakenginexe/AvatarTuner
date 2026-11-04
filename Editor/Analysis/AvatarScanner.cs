@@ -74,6 +74,7 @@ namespace AvatarTuner.Editor.Analysis
                 ScanDynamicComponents(avatarRoot, report, options);
                 ScanInactiveObjects(avatarRoot, report, options);
                 ClassifyUsages(report);
+                ClassifySemantics(report);
                 AnalyzeSharing(avatarRoot, report, options);
                 if (options.ComputeContentHashes)
                 {
@@ -388,11 +389,18 @@ namespace AvatarTuner.Editor.Analysis
 
         private static void FillTextureImporterData(Texture texture, TextureEntry entry)
         {
-            // Start with what the live texture reports; the importer refines it below.
+            // Imported dimensions are the GPU texture dimensions, not the source file dimensions.
             entry.Width = texture.width;
             entry.Height = texture.height;
             entry.CurrentFormatName = CurrentFormatName(texture);
-            entry.CurrentFormatKnown = TextureFormatInfo.TryParse(entry.CurrentFormatName, out _);
+            TunerTextureFormat importedFormat;
+            entry.CurrentFormatKnown = TextureFormatInfo.TryParse(entry.CurrentFormatName, out importedFormat) &&
+                importedFormat != TunerTextureFormat.Automatic && importedFormat != TunerTextureFormat.Unknown &&
+                TextureFormatInfo.BytesPerPixel(importedFormat) > 0;
+            var texture2D = texture as Texture2D;
+            entry.CurrentFaceCount = texture2D != null ? 1 : 0;
+            entry.CurrentMipCount = texture2D != null ? texture2D.mipmapCount : 0;
+            entry.MipMapsEnabled = entry.CurrentMipCount > 1;
 
             var importer = AssetImporter.GetAtPath(entry.Path) as TextureImporter;
             if (importer == null)
@@ -410,19 +418,18 @@ namespace AvatarTuner.Editor.Analysis
                 importer.GetSourceTextureWidthAndHeight(out sourceWidth, out sourceHeight);
                 if (sourceWidth > 0 && sourceHeight > 0)
                 {
-                    entry.Width = sourceWidth;
-                    entry.Height = sourceHeight;
+                    entry.SourceWidth = sourceWidth;
+                    entry.SourceHeight = sourceHeight;
                 }
             }
             catch (Exception)
             {
-                // The live texture dimensions captured above stand in.
+                // The source dimensions remain unknown.
             }
 
             entry.HasAlphaChannel = importer.DoesSourceTextureHaveAlpha();
             entry.AlphaIsTransparency = importer.alphaIsTransparency;
             entry.IsNormalMap = importer.textureType == TextureImporterType.NormalMap;
-            entry.MipMapsEnabled = importer.mipmapEnabled;
             entry.SrgbTexture = importer.sRGBTexture;
             entry.MaxSizeOverride = importer.maxTextureSize;
 
@@ -524,6 +531,38 @@ namespace AvatarTuner.Editor.Analysis
                         }
                     }
                 }
+            }
+        }
+
+        private static void ClassifySemantics(AvatarAnalysisReport report)
+        {
+            foreach (var texture in report.Textures)
+            {
+                var evidence = new List<SemanticEvidence>();
+                foreach (var guid in texture.UsedByMaterialGuids)
+                {
+                    var material = report.FindMaterial(guid);
+                    if (material == null) continue;
+                    foreach (var binding in material.TextureBindings)
+                    {
+                        if (!string.Equals(binding.Value, texture.Guid, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (material.UsedByRendererPaths.Count == 0)
+                            evidence.Add(new SemanticEvidence { MaterialName = material.Name, ShaderName = material.ShaderName, PropertyName = binding.Key, IsAnimated = material.UsedInMaterialSwapAnimation });
+                        foreach (var path in material.UsedByRendererPaths)
+                        {
+                            if (!texture.RendererPaths.Contains(path)) texture.RendererPaths.Add(path);
+                            string meshName = null;
+                            var evidencePath = "animated/" + path;
+                            foreach (var renderer in report.Renderers)
+                                if (string.Equals(renderer.Path, path, StringComparison.OrdinalIgnoreCase) || renderer.Path.EndsWith("/" + path, StringComparison.OrdinalIgnoreCase)) { meshName = renderer.MeshName; evidencePath = renderer.Path; break; }
+                            evidence.Add(new SemanticEvidence { RendererPath = evidencePath, MaterialName = material.Name, ShaderName = material.ShaderName, PropertyName = binding.Key, MeshName = meshName, IsAnimated = material.UsedInMaterialSwapAnimation });
+                        }
+                    }
+                }
+                var result = SemanticClassifier.Classify(texture.Name, evidence);
+                texture.Category = result.Category;
+                texture.CategoryConfidence = result.Confidence;
+                texture.CategoryReasons.AddRange(result.Reasons);
             }
         }
 
@@ -781,15 +820,17 @@ namespace AvatarTuner.Editor.Analysis
                         entry.MaterialSwapTargets.Add(description);
                     }
 
-                    var material = string.IsNullOrEmpty(targetGuid) ? null : report.FindMaterial(targetGuid);
-                    if (material != null)
+                    if (!string.IsNullOrEmpty(targetGuid))
                     {
-                        material.UsedInMaterialSwapAnimation = true;
-                    }
-                    else if (!string.IsNullOrEmpty(targetGuid))
-                    {
-                        // A swap target that is not on any renderer still has to survive.
-                        report.AddFinding("finding.offHierarchyMaterialSwap", target.name);
+                        var material = report.FindMaterial(targetGuid);
+                        if (material == null) report.AddFinding("finding.offHierarchyMaterialSwap", target.name);
+                        RegisterMaterial(target, binding.path, report);
+                        material = report.FindMaterial(targetGuid);
+                        if (material != null)
+                        {
+                            material.UsedInMaterialSwapAnimation = true;
+                            CollectMaterialTextures(target, targetGuid, new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase), report);
+                        }
                     }
                 }
             }

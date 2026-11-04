@@ -50,7 +50,10 @@ namespace AvatarTuner.Core
         ETC2_RGB4,
         ETC2_RGBA8,
 
-        Unknown
+        Unknown,
+        ASTC_4x4,
+        ASTC_6x6,
+        ASTC_8x8
     }
 
     /// <summary>
@@ -60,7 +63,7 @@ namespace AvatarTuner.Core
     public static class TextureFormatInfo
     {
         /// <summary>
-        /// Bytes consumed by one 4x4 texel block for block-compressed formats, or 0 when the
+        /// Bytes consumed by one texel block for block-compressed formats, or 0 when the
         /// format is not block compressed.
         /// </summary>
         public static int BlockBytes(TunerTextureFormat format)
@@ -75,6 +78,9 @@ namespace AvatarTuner.Core
                 case TunerTextureFormat.BC5:
                 case TunerTextureFormat.BC6H:
                 case TunerTextureFormat.BC7:
+                case TunerTextureFormat.ASTC_4x4:
+                case TunerTextureFormat.ASTC_6x6:
+                case TunerTextureFormat.ASTC_8x8:
                 case TunerTextureFormat.ETC2_RGBA8:
                     return 16;
                 default:
@@ -82,7 +88,7 @@ namespace AvatarTuner.Core
             }
         }
 
-        /// <summary>True when the format stores data as 4x4 blocks.</summary>
+        /// <summary>True when the format stores data in compressed blocks.</summary>
         public static bool IsBlockCompressed(TunerTextureFormat format)
         {
             return BlockBytes(format) > 0;
@@ -90,7 +96,7 @@ namespace AvatarTuner.Core
 
         /// <summary>
         /// Bytes per texel for non-block formats. For block formats this returns the
-        /// average bytes-per-texel (blockBytes / 16) which is what callers usually want when
+        /// average bytes-per-texel which is what callers usually want when
         /// they need a quick figure; use <see cref="VramCalculator" /> for exact totals.
         /// </summary>
         public static double BytesPerPixel(TunerTextureFormat format)
@@ -98,7 +104,8 @@ namespace AvatarTuner.Core
             var blockBytes = BlockBytes(format);
             if (blockBytes > 0)
             {
-                return blockBytes / 16.0;
+                var blockWidth = format == TunerTextureFormat.ASTC_6x6 ? 6 : format == TunerTextureFormat.ASTC_8x8 ? 8 : 4;
+                return blockBytes / (double)(blockWidth * blockWidth);
             }
 
             switch (format)
@@ -135,6 +142,9 @@ namespace AvatarTuner.Core
             {
                 case TunerTextureFormat.ETC2_RGB4:
                 case TunerTextureFormat.ETC2_RGBA8:
+                case TunerTextureFormat.ASTC_4x4:
+                case TunerTextureFormat.ASTC_6x6:
+                case TunerTextureFormat.ASTC_8x8:
                 case TunerTextureFormat.Automatic:
                 case TunerTextureFormat.Unknown:
                     return false;
@@ -148,6 +158,9 @@ namespace AvatarTuner.Core
         {
             switch (format)
             {
+                case TunerTextureFormat.ASTC_4x4:
+                case TunerTextureFormat.ASTC_6x6:
+                case TunerTextureFormat.ASTC_8x8:
                 case TunerTextureFormat.BC3:
                 case TunerTextureFormat.BC7:
                 case TunerTextureFormat.BC1: // 1-bit alpha only
@@ -190,6 +203,9 @@ namespace AvatarTuner.Core
 
                 case TunerTextureFormat.BC3:
                 case TunerTextureFormat.BC7:
+                case TunerTextureFormat.ASTC_4x4:
+                case TunerTextureFormat.ASTC_6x6:
+                case TunerTextureFormat.ASTC_8x8:
                 case TunerTextureFormat.RGBA32:
                 case TunerTextureFormat.ARGB32:
                 case TunerTextureFormat.RGBA16:
@@ -220,6 +236,9 @@ namespace AvatarTuner.Core
             {
                 case TunerTextureFormat.BC3:
                 case TunerTextureFormat.BC7:
+                case TunerTextureFormat.ASTC_4x4:
+                case TunerTextureFormat.ASTC_6x6:
+                case TunerTextureFormat.ASTC_8x8:
                 case TunerTextureFormat.ETC2_RGBA8:
                 case TunerTextureFormat.RGBA32:
                 case TunerTextureFormat.ARGB32:

@@ -42,6 +42,11 @@ namespace AvatarTuner.Editor.Analysis
 
         public int Width;
         public int Height;
+        public int SourceWidth;
+        public int SourceHeight;
+        public int CurrentMipCount;
+        // Zero means the imported texture shape cannot be safely valued.
+        public int CurrentFaceCount = 1;
 
         /// <summary>Format name as reported by the importer for the active build target, e.g. "BC7".</summary>
         public string CurrentFormatName;
@@ -75,6 +80,11 @@ namespace AvatarTuner.Editor.Analysis
 
         /// <summary>Detected usage, merged across every material binding that touches the texture.</summary>
         public AvatarTuner.Core.TextureUsageKind Usage = AvatarTuner.Core.TextureUsageKind.Unknown;
+
+        public AvatarTuner.Core.SemanticCategory Category = AvatarTuner.Core.SemanticCategory.Unknown;
+        public AvatarTuner.Core.SemanticConfidence CategoryConfidence = AvatarTuner.Core.SemanticConfidence.Low;
+        public readonly List<AvatarTuner.Core.SemanticReason> CategoryReasons = new List<AvatarTuner.Core.SemanticReason>();
+        public readonly List<string> RendererPaths = new List<string>();
 
         /// <summary>Why the usage was assigned. Kept so the UI can explain the decision.</summary>
         public readonly List<string> UsageReasons = new List<string>();

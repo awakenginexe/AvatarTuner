@@ -283,8 +283,8 @@ namespace AvatarTuner.StandaloneTests
             Assert.AreEqual("DXT1", TextureFormatMapping.ImporterFormatName(TunerTextureFormat.BC1), "BC1 is DXT1");
             Assert.AreEqual("DXT5", TextureFormatMapping.ImporterFormatName(TunerTextureFormat.BC3), "BC3 is DXT5");
             Assert.AreEqual("BC7", TextureFormatMapping.ImporterFormatName(TunerTextureFormat.BC7), "BC7 is BC7");
-            Assert.AreEqual("ETC2_RGB", TextureFormatMapping.ImporterFormatName(TunerTextureFormat.ETC2_RGB4),
-                "ETC2_RGB4 is ETC2_RGB in importer naming");
+            Assert.AreEqual("ETC2_RGB4", TextureFormatMapping.ImporterFormatName(TunerTextureFormat.ETC2_RGB4),
+                "Unity 2022.3 uses ETC2_RGB4 in TextureImporterFormat");
 
             var materializable = TextureFormatMapping.MaterializableFormats();
             Assert.IsGreater(15, materializable.Count, "the table covers the real formats");

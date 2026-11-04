@@ -14,7 +14,7 @@ namespace AvatarTuner.Core
         /// <summary>
         /// Bytes occupied by a single mip level of a 2D image.
         ///
-        /// Block-compressed formats pad the image up to a whole number of 4x4 blocks, so a
+        /// Block-compressed formats pad the image up to a whole number of blocks, so a
         /// 2x2 BC7 image still costs one 16-byte block. Uncompressed formats are exact.
         /// </summary>
         public static long LevelBytes(int width, int height, TunerTextureFormat format)
@@ -32,8 +32,9 @@ namespace AvatarTuner.Core
             var blockBytes = TextureFormatInfo.BlockBytes(format);
             if (blockBytes > 0)
             {
-                long blocksWide = (width + 3) / 4;
-                long blocksHigh = (height + 3) / 4;
+                int blockWidth = format == TunerTextureFormat.ASTC_6x6 ? 6 : format == TunerTextureFormat.ASTC_8x8 ? 8 : 4;
+                long blocksWide = ((long)width + blockWidth - 1) / blockWidth;
+                long blocksHigh = ((long)height + blockWidth - 1) / blockWidth;
                 return blocksWide * blocksHigh * blockBytes;
             }
 

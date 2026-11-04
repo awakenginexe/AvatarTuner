@@ -97,6 +97,10 @@ namespace AvatarTuner.Core
     /// </summary>
     public sealed class TexturePlan
     {
+        public TextureCandidate Candidate;
+        public double RequestedReduction;
+        public double ReductionAchieved;
+
         /// <summary>True when nothing should be done to this texture.</summary>
         public bool IsNoOp;
 
@@ -169,7 +173,8 @@ namespace AvatarTuner.Core
                 TargetMaxSize.ToString(CultureInfo.InvariantCulture),
                 TargetMipMaps ? "mip1" : "mip0",
                 TargetWidth.ToString(CultureInfo.InvariantCulture),
-                TargetHeight.ToString(CultureInfo.InvariantCulture)
+                TargetHeight.ToString(CultureInfo.InvariantCulture),
+                Candidate == null ? "" : Candidate.ToHashToken()
             });
         }
     }
