@@ -46,7 +46,8 @@ namespace AvatarTuner.Editor.ViewModels
             bool hasAvatar,
             bool hasPlan,
             bool planHasChanges,
-            bool hasResults)
+            bool hasResults,
+            bool hasEvaluatedPlan = true)
         {
             if (!hasAvatar || state == WindowState.NoSelection)
             {
@@ -75,7 +76,7 @@ namespace AvatarTuner.Editor.ViewModels
                 return PrimaryAction.Analyze;
             }
 
-            return planHasChanges ? PrimaryAction.ConfigureOptimization : PrimaryAction.ReviewChanges;
+            return planHasChanges || !hasEvaluatedPlan ? PrimaryAction.ConfigureOptimization : PrimaryAction.ReviewChanges;
         }
 
         /// <summary>
@@ -122,7 +123,8 @@ namespace AvatarTuner.Editor.ViewModels
             bool hasAvatar,
             bool hasPlan,
             bool planHasChanges,
-            bool compatibilityAllows)
+            bool compatibilityAllows,
+            bool hasEvaluatedPlan = true)
         {
             if (WindowFlow.IsBusy(state))
             {
@@ -144,7 +146,7 @@ namespace AvatarTuner.Editor.ViewModels
                 return "ui.hint.blocked";
             }
 
-            if (!planHasChanges)
+            if (hasEvaluatedPlan && !planHasChanges)
             {
                 return "ui.hint.noChanges";
             }

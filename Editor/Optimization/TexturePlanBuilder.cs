@@ -148,7 +148,7 @@ namespace AvatarTuner.Editor.Optimization
                 SemanticCategory corrected;
                 if (settings != null && settings.CategoryCorrections.TryGetValue(entry.Guid ?? string.Empty, out corrected))
                     planned.Category = corrected;
-                planned.EffectiveSettings = settings == null ? null : settings.Resolve(entry.Guid, planned.Category);
+                planned.EffectiveSettings = settings == null ? null : settings.ResolveForOptimization(entry.Guid, planned.Category);
 
                 TextureOverride userOverride = null;
                 if (overrides != null && !string.IsNullOrEmpty(entry.Guid))
@@ -184,7 +184,7 @@ namespace AvatarTuner.Editor.Optimization
                     ? CompressionPlanner.Plan(BuildRequest(entry), policy, effectiveOverride, quality)
                     : AdaptivePlanner.Select(BuildRequest(entry), policy, effectiveOverride,
                         planned.EffectiveSettings.Settings, planned.Category,
-                        evaluate == null ? null : candidate => evaluate(entry, candidate));
+                        evaluate == null ? null : candidate => evaluate(entry, candidate), settings.Mode == OptimizationMode.Advanced);
                 // Candidate selection retains physical GPU arithmetic; displayed totals follow the SDK.
                 var sourceMipCount = entry.CurrentMipCount > 0 ? entry.CurrentMipCount :
                     entry.Width > 0 && entry.Height > 0 ? (entry.MipMapsEnabled ? VramCalculator.MipLevelCount(entry.Width, entry.Height) : 1) : 0;
@@ -208,6 +208,8 @@ namespace AvatarTuner.Editor.Optimization
                 texturePlan.SavingUnknown = !sourceKnown || !texturePlan.TargetBytesKnown;
                 texturePlan.SavingBytes = texturePlan.SourceBytes - texturePlan.TargetBytes;
                 texturePlan.SavingPercent = SavingPercentOf(texturePlan.SourceBytes, texturePlan.TargetBytes);
+                if (settings != null && sourceKnown && texturePlan.TargetBytesKnown && texturePlan.TargetBytes > 0)
+                    texturePlan.ReductionAchieved = (double)texturePlan.SourceBytes / texturePlan.TargetBytes;
 
                 if (planned.ProtectedByThirdParty)
                 {
@@ -389,6 +391,7 @@ namespace AvatarTuner.Editor.Optimization
             request.CurrentFormatKnown = entry.CurrentFormatKnown && request.CurrentFormat != TunerTextureFormat.Unknown;
             request.CurrentMaxSize = entry.MaxSizeOverride;
             request.CurrentMipMaps = entry.MipMapsEnabled;
+            request.CurrentMipCount = entry.CurrentMipCount;
             request.CurrentSRGB = entry.SrgbTexture;
             request.Usage = entry.Usage;
             request.SourceHasAlpha = entry.HasAlphaChannel;

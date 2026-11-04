@@ -11,15 +11,15 @@ Version 2.0.0 is in preparation and has not been published. For local validation
 ## Usage
 
 1. Open **Tools → AvatarTuner**, select a scene avatar and analyze it.
-2. Open the optimization workspace. Quick settings adjust quality thresholds; Advanced exposes Global, Category and per-texture Custom settings, classification evidence and overrides. Check protected and excluded textures before proceeding.
-3. Explicitly evaluate candidates, inspect the selected texture preview and differences, and review the estimated memory summary before confirming optimization. Evaluation can be cancelled.
+2. Click **Optimize Avatar** and choose **Standard** for automatic texture/format/resolution choices or **Advanced** to include specific textures and set their own targets. Opening either mode and changing settings does not process textures.
+3. Click **Evaluate candidates**, review the proposed changes and estimated memory, then **Confirm & Optimize**. Advanced also offers an explicit preview. Evaluation imports temporary candidates and can be cancelled; originals remain unchanged.
 4. Generated assets are stored under `Assets/AvatarTuner-Generated/`. Scene application uses generated material copies and supports Undo and restore. Safely remappable material-swap animations use generated clips and controllers; unsafe cases retain originals and report limitations. Optional NDMF application operates at build time.
 
-Settings are stored per avatar in the project's `Library`. Creating a Category or Custom override takes a snapshot of its inherited settings; subsequent parent changes do not update that override. Reset returns it to inheritance. Changing Quick quality thresholds preserves Custom overrides.
+Advanced selections and settings are stored per avatar in the project's `Library`. Only checked textures are evaluated and optimized in Advanced. Creating a Category or Custom override takes a snapshot of inherited settings; Reset returns to inheritance. Switching modes retains Advanced tuning and explicit exclusions/protections.
 
 ## Candidate selection and safety
 
-The adaptive planner chooses the smallest candidate that satisfies quality constraints. The memory ratio is an advisory goal and may remain unmet. Standard uses Unity Mitchell resizing and importer compression quality 50. Best Quality uses quality 100 and compares Unity Mitchell and Bilinear; PNG/JPEG candidates can also use Area, Lanczos3 and Mitchell resampling. Unity's native importer performs compression; no external encoder or private maximum-effort BC7 API is used.
+Standard chooses the smallest candidate that satisfies quality constraints. Advanced accepts custom memory-reduction ratios of 1 or greater and chooses the closest acceptable SDK-memory estimate; formats, resolution steps and quality limits may prevent an exact match. A 4x target means one-quarter of the original memory. The default encoding effort uses Unity Mitchell and importer compression quality 50. Advanced's Best Quality effort uses quality 100 and compares additional filters. Unity's native importer performs compression; no external encoder or private maximum-effort BC7 API is used.
 
 Windows candidates include BC1, BC3, BC4, BC5 and BC7 when their channels and color interpretation fit the texture. Changing the scene bindings, source materials/shaders or protection evidence invalidates a reviewed plan. Generated files and recovery records are committed only after scene application and manifest persistence succeed.
 

@@ -17,6 +17,21 @@ namespace AvatarTuner.StandaloneTests
     /// </summary>
     public static class EditorApiHygieneTests
     {
+        [Test("opening optimizer or changing preferences cannot start candidate imports")]
+        public static void OptimizerOpensIdle()
+        {
+            var text = File.ReadAllText(Path.Combine(PackageLayout.Root, "Editor", "UI", "AvatarTunerWindow.cs"));
+            var start = text.IndexOf("private void OpenOptimizeDialog()", StringComparison.Ordinal);
+            var end = text.IndexOf("private void CloseOptimizeDialog()", start, StringComparison.Ordinal);
+            var opening = text.Substring(start, end - start);
+            Assert.IsFalse(opening.Contains("EvaluateRecommendations("), "opening configuration must not evaluate/import scratch textures");
+            Assert.IsFalse(opening.Contains("RunOptimize("), "opening configuration must not generate output");
+            start = text.IndexOf("private VisualElement BuildPreferencesCard()", StringComparison.Ordinal);
+            end = text.IndexOf("// ===================================================================== actions", start, StringComparison.Ordinal);
+            Assert.IsFalse(text.Substring(start, end - start).Contains("EvaluateRecommendations("), "preference edits must not evaluate");
+            Assert.IsFalse(text.Contains("BuildDialogPresetCards("), "mode choices replace quality preset cards");
+        }
+
         /// <summary>IMGUI-only APIs that must not appear in the UI Toolkit Editor sources.</summary>
         private static readonly string[] BannedImguiCalls = { ".Use()" };
 

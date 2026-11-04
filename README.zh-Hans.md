@@ -10,11 +10,11 @@ AvatarTuner 在 Unity Editor 中分析并优化 VRChat 头像的纹理内存。�
 
 ## 使用
 
-打开 **Tools → AvatarTuner**，选择场景头像并分析，打开优化工作区。使用 Quick 或 Advanced 设置，主动评估候选项，检查所选纹理预览、差异和内存估算后再确认。评估可以取消。生成文件位于 `Assets/AvatarTuner-Generated/`；场景应用支持 Undo 和恢复。可安全重映射的材质切换使用生成的动画片段及控制器副本；不安全的情况保留原资源并报告限制。
+打开 **Tools → AvatarTuner**，选择场景头像并分析，点击 **Optimize Avatar**。选择 **Standard** 自动选择纹理、格式和分辨率，或选择 **Advanced** 勾选特定纹理并设置各自目标。打开窗口或更改设置不会处理纹理。主动评估候选项，检查拟议更改和内存估算后再确认并优化。评估会导入临时候选资源，可以取消。生成文件位于 `Assets/AvatarTuner-Generated/`；场景应用支持 Undo 和恢复。
 
-设置按头像保存在项目 `Library` 中。创建 Category 或 Custom 覆盖时会复制当时继承的整套设置，之后父级变化不会改变该快照；重置会恢复继承。更改 Quick 质量阈值会保留 Custom 覆盖。
+Advanced 的勾选和设置按头像保存在项目 `Library` 中；只评估和优化已勾选纹理。创建 Category 或 Custom 覆盖时会复制当时继承的整套设置，重置会恢复继承。切换模式会保留 Advanced 调整及明确设置的排除和保护。
 
-自适应规划选择满足质量限制的最小候选项；内存比例只是目标，可能无法达到。Standard 使用 Unity Mitchell 和导入压缩质量 50；Best Quality 使用质量 100，比较 Unity Mitchell/Bilinear，并为 PNG/JPEG 比较 Area、Lanczos3 和 Mitchell。压缩使用 Unity 原生导入器，不使用外部编码器。
+Standard 选择满足质量限制的最小候选项。Advanced 支持不小于 1 的自定义内存缩减倍率和小数，选择按 SDK 估算且最接近目标的合格结果；格式和质量限制可能使目标无法精确匹配。4x 表示原始内存的四分之一。默认编码使用 Unity Mitchell 和压缩质量 50；Advanced 的 Best Quality 编码使用质量 100 并比较更多滤镜。压缩使用 Unity 原生导入器，不使用外部编码器。
 
 无法安全验证导入候选项时，HDR、法线贴图和形状不明确的纹理保持不变。BC6H 用于内存计算和报告，不提供新的 HDR 转换。ASTC 4x4/6x6/8x8 仅适用于 Android，要求当前构建目标为 Android 且支持解码。
 

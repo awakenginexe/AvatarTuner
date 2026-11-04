@@ -22,6 +22,7 @@ namespace AvatarTuner.Core
         public int CurrentMaxSize;
 
         public bool CurrentMipMaps = true;
+        public int CurrentMipCount;
         public bool CurrentSRGB = true;
 
         public TextureUsageKind Usage = TextureUsageKind.Unknown;

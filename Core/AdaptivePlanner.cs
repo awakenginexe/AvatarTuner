@@ -157,7 +157,8 @@ namespace AvatarTuner.Core
             }
             return result;
         }
-        public static TexturePlan Select(TexturePlanRequest r, TexturePolicy p, TextureOverride o, TextureSettings s, SemanticCategory category, Func<TextureCandidate, CandidateQuality> evaluate)
+        public static TexturePlan Select(TexturePlanRequest r, TexturePolicy p, TextureOverride o, TextureSettings s, SemanticCategory category, Func<TextureCandidate, CandidateQuality> evaluate,
+            bool useReductionTarget = false)
         {
             if (r == null) throw new ArgumentNullException("r");
             if (p == null) throw new ArgumentNullException("p");
@@ -190,9 +191,29 @@ namespace AvatarTuner.Core
             if (evaluate == null) return plan;
             TextureCandidate best = null;
             CandidateQuality quality = null;
+            double targetBytes = 0;
+            double bestScore = double.MaxValue;
+            if (useReductionTarget)
+            {
+                long reportedSource;
+                var mipCount = r.CurrentMipCount > 0 ? r.CurrentMipCount : r.CurrentMipMaps ? VramCalculator.MipLevelCount(r.SourceWidth, r.SourceHeight) : 1;
+                if (!VrcTextureMemory.TryEstimateBytes(r.SourceWidth, r.SourceHeight, r.CurrentFormat, mipCount, r.FaceCount, out reportedSource)) return plan;
+                targetBytes = reportedSource / s.DesiredReduction;
+                if (s.Format == TunerTextureFormat.Automatic && s.MaxResolution == 0 && (o == null || !o.HasAnyEffect))
+                    bestScore = Math.Abs(reportedSource - targetBytes);
+            }
             foreach (var c in Candidates(r, p, o, s, category))
             {
-                if (c.Bytes >= plan.SourceBytes || (best != null && c.Bytes > best.Bytes)) continue;
+                if (c.Bytes >= plan.SourceBytes) continue;
+                double score = c.Bytes;
+                if (useReductionTarget)
+                {
+                    long reportedTarget;
+                    if (!VrcTextureMemory.TryEstimateBytes(c.Width, c.Height, c.Format,
+                        c.MipMaps ? VramCalculator.MipLevelCount(c.Width, c.Height) : 1, 1, out reportedTarget)) continue;
+                    score = Math.Abs(reportedTarget - targetBytes);
+                }
+                if (score > bestScore || (best == null && score == bestScore)) continue;
                 var q = evaluate(c);
                 if (q != null && (!Between(q.Ssim, -1, 1) || !Between(q.AlphaCoverageError, 0, 1) ||
                     !Between(q.EdgeError, 0, 1) || !Between(q.MeanColorError, 0, 1) ||
@@ -205,14 +226,16 @@ namespace AvatarTuner.Core
                 double minSsim = category == SemanticCategory.Face || category == SemanticCategory.Eyes ? 0.99 :
                     category == SemanticCategory.Hair || category == SemanticCategory.Masks ? 0.985 : s.MinSsim;
                 if (q.Psnr < Math.Max(s.MinPsnr, minPsnr) || q.Ssim < Math.Max(s.MinSsim, minSsim)) continue;
-                if (best != null && c.Bytes == best.Bytes &&
+                if (best != null && score == bestScore &&
                     (q.Ssim < quality.Ssim || (q.Ssim == quality.Ssim && q.Psnr <= quality.Psnr))) continue;
                 best = c;
+                bestScore = score;
                 quality = q;
             }
             if (best == null)
             {
-                plan.SkipReasonKey = plan.IsExcluded ? "plan.skip.excluded" : "plan.skip.noQualityEvidence";
+                plan.SkipReasonKey = plan.IsExcluded ? "plan.skip.excluded" :
+                    useReductionTarget ? "plan.skip.noCloserTarget" : "plan.skip.noQualityEvidence";
                 return plan;
             }
             plan.Candidate = best;
@@ -246,7 +269,7 @@ namespace AvatarTuner.Core
         private static bool ValidSettings(TextureSettings settings)
         {
             return Between(settings.MinPsnr, 0, 200) && Between(settings.MinSsim, 0, 1) &&
-                Between(settings.DesiredReduction, 1, 16) && settings.MaxResolution >= 0 &&
+                Between(settings.DesiredReduction, 1, double.MaxValue) && settings.MaxResolution >= 0 &&
                 Enum.IsDefined(typeof(OptimizationPlatform), settings.Platform) &&
                 Enum.IsDefined(typeof(OptimizationEffort), settings.Effort);
         }

@@ -17,7 +17,7 @@ namespace AvatarTuner.Editor.UI
         private AvatarTunerController controller;
         private Action changed;
         private CandidatePreview preview;
-        private readonly HashSet<string> selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private HashSet<string> selected { get { return controller.Settings.IncludedTextures; } }
         private string currentGuid;
         private string search = string.Empty;
         private int categoryFilter;
@@ -29,6 +29,7 @@ namespace AvatarTuner.Editor.UI
 
         public static void Open(AvatarTunerController controller, Action changed)
         {
+            controller.SetOptimizationMode(OptimizationMode.Advanced);
             var window = GetWindow<OptimizationWorkspace>();
             window.titleContent = new GUIContent(UiStrings.T("workspace.title"));
             window.minSize = new Vector2(420, 400);
@@ -92,6 +93,7 @@ namespace AvatarTuner.Editor.UI
         private void Mutated()
         {
             DisposePreview();
+            controller.SetOptimizationMode(OptimizationMode.Advanced);
             controller.SaveSettings();
             controller.RebuildPlan();
             if (changed != null) changed();
@@ -100,20 +102,17 @@ namespace AvatarTuner.Editor.UI
         private void BuildActions(VisualElement parent)
         {
             var row = Row();
-            var presets = (OptimizationPreset[])Enum.GetValues(typeof(OptimizationPreset));
-            var labels = new List<string>();
-            foreach (var value in presets) labels.Add(EnumText(value));
-            var preset = new PopupField<string>(T("preset"), labels, Math.Max(0, Array.IndexOf(presets, controller.Preset)));
-            preset.RegisterValueChangedCallback(e => { controller.ApplyPreset(presets[labels.IndexOf(e.newValue)]); Mutated(); });
-            row.Add(preset);
+            row.Add(Text(T("advancedDescription")));
             var evaluate = Button("evaluate", () => Execute(false));
             evaluate.style.color = UiTheme.Accent;
+            evaluate.SetEnabled(selected.Count > 0 && controller.CompatibilityAllows && !WindowFlow.IsBusy(controller.State));
             row.Add(evaluate);
             var apply = Button("apply", () => Execute(true));
             apply.SetEnabled(controller.HasEvaluatedPlan && controller.Plan != null && controller.Plan.HasChanges && controller.CompatibilityAllows);
             row.Add(apply);
             parent.Add(row);
             parent.Add(Text(T("evaluateHint")));
+            parent.Add(Text(UiStrings.T("workspace.includedCount", selected.Count.ToString(CultureInfo.InvariantCulture))));
             if (!string.IsNullOrEmpty(controller.ErrorKey)) parent.Add(Text(UiStrings.T(controller.ErrorKey)));
             if (controller.Plan != null)
             {
@@ -128,6 +127,13 @@ namespace AvatarTuner.Editor.UI
         }
         private void Execute(bool apply)
         {
+            if (controller.Settings.Mode != OptimizationMode.Advanced)
+            {
+                controller.SetOptimizationMode(OptimizationMode.Advanced);
+                if (changed != null) changed();
+                Refresh();
+                if (apply) return;
+            }
             if (apply)
             {
                 if (!controller.HasEvaluatedPlan || controller.Plan == null || !controller.Plan.HasChanges || !controller.CompatibilityAllows) return;
@@ -184,12 +190,13 @@ namespace AvatarTuner.Editor.UI
         }
         private void SettingsFields(VisualElement parent, TextureSettings settings, TextureEntry texture, Action commit)
         {
-            var ratios = new List<string> { "1x", "2x", "4x", "8x", "16x" };
-            var values = new[] { 1d, 2d, 4d, 8d, 16d };
-            var index = Array.IndexOf(values, settings.DesiredReduction);
-            var ratio = new PopupField<string>(T("ratio"), ratios, Math.Max(0, index));
+            var ratio = new FloatField(T("ratio")) { value = (float)settings.DesiredReduction, isDelayed = true };
             ratio.tooltip = T("ratioHelp");
-            ratio.RegisterValueChangedCallback(e => { settings.DesiredReduction = values[ratios.IndexOf(e.newValue)]; commit(); });
+            ratio.RegisterValueChangedCallback(e =>
+            {
+                settings.DesiredReduction = float.IsNaN(e.newValue) || float.IsInfinity(e.newValue) ? 4 : Math.Max(1, e.newValue);
+                commit();
+            });
             parent.Add(ratio);
             var formats = texture == null ? new List<TunerTextureFormat> { TunerTextureFormat.Automatic, TunerTextureFormat.BC1, TunerTextureFormat.BC3, TunerTextureFormat.BC4, TunerTextureFormat.BC5, TunerTextureFormat.BC7, TunerTextureFormat.ASTC_4x4, TunerTextureFormat.ASTC_6x6, TunerTextureFormat.ASTC_8x8 } : controller.AllowedFormats(texture);
             if (formats == null) formats = new List<TunerTextureFormat>();
@@ -249,8 +256,8 @@ namespace AvatarTuner.Editor.UI
             var previous = Button("previous", () => { page--; Refresh(); }); previous.SetEnabled(page > 0); paging.Add(previous);
             paging.Add(Text(UiStrings.T("workspace.page", (page + 1).ToString(), pages.ToString(), list.Count.ToString())));
             var next = Button("next", () => { page++; Refresh(); }); next.SetEnabled(page + 1 < pages); paging.Add(next);
-            var selectPage = Button("selectPage", () => { for (var i = page * PageSize; i < Math.Min(list.Count, (page + 1) * PageSize); i++) selected.Add(list[i].TextureGuid); Refresh(); }); paging.Add(selectPage);
-            paging.Add(Button("clearSelection", () => { selected.Clear(); Refresh(); }));
+            var selectPage = Button("selectPage", () => { for (var i = page * PageSize; i < Math.Min(list.Count, (page + 1) * PageSize); i++) selected.Add(list[i].TextureGuid); Mutated(); }); paging.Add(selectPage);
+            paging.Add(Button("clearSelection", () => { selected.Clear(); Mutated(); }));
             parent.Add(paging);
             if (list.Count == 0) parent.Add(Text(T("noTextures")));
             for (var i = page * PageSize; i < Math.Min(list.Count, (page + 1) * PageSize); i++) AddTextureRow(parent, list[i]);
@@ -262,7 +269,7 @@ namespace AvatarTuner.Editor.UI
             if (string.Equals(currentGuid, item.TextureGuid, StringComparison.OrdinalIgnoreCase)) row.style.backgroundColor = UiTheme.SelectedBackground;
             var check = new Toggle { value = selected.Contains(item.TextureGuid) };
             check.tooltip = T("selectTexture");
-            check.RegisterValueChangedCallback(e => { if (e.newValue) selected.Add(item.TextureGuid); else selected.Remove(item.TextureGuid); });
+            check.RegisterValueChangedCallback(e => { if (e.newValue) selected.Add(item.TextureGuid); else selected.Remove(item.TextureGuid); Mutated(); });
             row.Add(check);
             var asset = AssetDatabase.LoadAssetAtPath<Texture>(item.TexturePath);
             var thumbnail = asset == null ? null : AssetPreview.GetMiniThumbnail(asset);
@@ -292,6 +299,7 @@ namespace AvatarTuner.Editor.UI
         private void BuildBulk(VisualElement parent)
         {
             var bulk = new Foldout { text = T("bulk"), value = false };
+            bulk.SetEnabled(selected.Count > 0);
             parent.Add(bulk);
             bulk.Add(Text(T("bulkHint")));
             var keep = Button("bulkKeep", () => Bulk(s => s.KeepResolution = true));
@@ -303,6 +311,17 @@ namespace AvatarTuner.Editor.UI
             var values = new[] { 0d, 1d, 2d, 4d, 8d, 16d };
             var ratio = new PopupField<string>(T("ratio"), ratios, 0);
             ratio.RegisterValueChangedCallback(e => { var i = ratios.IndexOf(e.newValue); if (i > 0) Bulk(s => s.DesiredReduction = values[i]); }); bulk.Add(ratio);
+            var customRatio = new FloatField(T("customRatio")) { value = 4, isDelayed = true };
+            customRatio.tooltip = T("ratioHelp");
+            bulk.Add(customRatio);
+            var applyCustomRatio = Button("applyCustomRatio", () =>
+            {
+                var value = customRatio.value;
+                if (!float.IsNaN(value) && !float.IsInfinity(value) && value >= 1) Bulk(s => s.DesiredReduction = value);
+            });
+            applyCustomRatio.tooltip = T("ratioHelp");
+            customRatio.RegisterValueChangedCallback(e => applyCustomRatio.SetEnabled(!float.IsNaN(e.newValue) && !float.IsInfinity(e.newValue) && e.newValue >= 1));
+            bulk.Add(applyCustomRatio);
             var formats = new[] { TunerTextureFormat.Automatic, TunerTextureFormat.BC1, TunerTextureFormat.BC3, TunerTextureFormat.BC4, TunerTextureFormat.BC5, TunerTextureFormat.BC7, TunerTextureFormat.ASTC_4x4, TunerTextureFormat.ASTC_6x6, TunerTextureFormat.ASTC_8x8 };
             var choices = new List<string> { T("chooseFormat") };
             foreach (var format in formats) choices.Add(format == TunerTextureFormat.Automatic ? T("automatic") : format.ToString());
@@ -395,7 +414,7 @@ namespace AvatarTuner.Editor.UI
         {
             Heading(parent, "preview");
             var generate = Button("generatePreview", () => { DisposePreview(); preview = controller.GetPreview(currentGuid); Refresh(); });
-            generate.SetEnabled(controller.HasEvaluatedPlan);
+            generate.SetEnabled(controller.HasEvaluatedPlan && controller.Settings.Mode == OptimizationMode.Advanced && selected.Contains(currentGuid));
             parent.Add(generate);
             if (preview == null) { parent.Add(Text(T("previewHint"))); return; }
             if (!string.IsNullOrEmpty(preview.ErrorKey)) { parent.Add(Text(UiStrings.T(preview.ErrorKey))); return; }

@@ -90,8 +90,6 @@ namespace AvatarTuner.Editor.UI
 
         private void CreateGUI()
         {
-            // Restore the preset the user chose in an earlier editor session.
-            _controller.Preset = PresetMemory.Load(SessionState.GetString);
             BuildShell();
             RefreshView();
         }
@@ -455,12 +453,18 @@ namespace AvatarTuner.Editor.UI
             var hasResults = _controller.Generation != null;
             var hasAvatar = _controller.Avatar != null;
 
-            var primary = WorkflowModel.NextAction(state, hasAvatar, hasPlan, planHasChanges, hasResults);
+            var primary = WorkflowModel.NextAction(state, hasAvatar, hasPlan, planHasChanges, hasResults, _controller.HasEvaluatedPlan);
             var optimizeReason = WorkflowModel.OptimizeDisabledReasonKey(
-                state, hasAvatar, hasPlan, planHasChanges, _controller.CompatibilityAllows);
+                state, hasAvatar, hasPlan, planHasChanges, _controller.CompatibilityAllows, _controller.HasEvaluatedPlan);
             var analyzeReason = WorkflowModel.AnalyzeDisabledReasonKey(state, hasAvatar);
 
             row.Add(BuildPrimaryButton(primary, optimizeReason, analyzeReason));
+            if (hasPlan && primary != PrimaryAction.ConfigureOptimization)
+            {
+                var configure = SecondaryButton("ui.button.optimize", OpenOptimizeDialog);
+                configure.SetEnabled(!WindowFlow.IsBusy(state) && _controller.CompatibilityAllows);
+                row.Add(configure);
+            }
             row.Add(Spacer());
             row.Add(SecondaryButton("ui.button.refresh", () => { _controller.RefreshStatus(); RefreshView(); }));
             row.Add(SecondaryButton("ui.button.exportReport", ExportReport));
@@ -552,8 +556,7 @@ namespace AvatarTuner.Editor.UI
                     onClick = () => { _module = ModuleTextures; RefreshView(); };
                     break;
                 case PrimaryAction.ConfigureOptimization:
-                    // Optimize never runs anything: it opens the configuration dialog
-                    // where the preset is reviewed, the plan previewed and confirmed.
+                    // Opening configuration is passive; Evaluate and Confirm are separate actions.
                     labelKey = _controller.HasRecordedOutputs
                         ? "ui.button.regenerate"
                         : "ui.button.optimize";
@@ -2084,9 +2087,7 @@ namespace AvatarTuner.Editor.UI
         // ===================================================================== optimization dialog
 
         /// <summary>
-        /// Optimize never runs anything: it opens this configuration dialog where the
-        /// preset is chosen, the planned changes are reviewed, and only the explicit
-        /// Confirm button generates output. Cancel closes the dialog and touches nothing.
+        /// Candidate imports occur only through the explicit Evaluate action.
         /// </summary>
         private bool EvaluateRecommendations()
         {
@@ -2104,7 +2105,8 @@ namespace AvatarTuner.Editor.UI
         private void OpenOptimizeDialog()
         {
             ClearNotice();
-            if (EvaluateRecommendations()) _dialogOpen = true;
+            _controller.SetOptimizationMode(OptimizationMode.Standard);
+            _dialogOpen = true;
             RefreshView();
         }
 
@@ -2189,24 +2191,20 @@ namespace AvatarTuner.Editor.UI
             scroll.AddToClassList("at-grow");
             scroll.style.flexShrink = 1;
 
-            var title = new Label(UiStrings.T("workspace.quick"));
+            var title = new Label(UiStrings.T("ui.button.optimize"));
             title.AddToClassList("at-card-title");
             scroll.Add(title);
 
-            // The currently selected preset is always visible.
-            scroll.Add(Line(UiStrings.T("ui.label.preset") + ": " +
-                            UiStrings.T(PresetNameKey(_controller.Preset))));
+            scroll.Add(BuildDialogModes());
+            scroll.Add(Message(UiStrings.T("workspace.standardHint"), UiTheme.Info));
 
-            scroll.Add(BuildDialogPresetCards());
-            scroll.Add(Message(UiStrings.T(PresetImpactKey(_controller.Preset)), UiTheme.Info));
-
-            if (_controller.Plan != null)
+            if (_controller.HasEvaluatedPlan && _controller.Plan != null)
             {
                 scroll.Add(BuildPlanSummaryCard());
             }
             else
             {
-                scroll.Add(Line(UiStrings.T("ui.hint.analyzeFirst")));
+                scroll.Add(Line(UiStrings.T("workspace.awaitingEvaluation")));
             }
 
             var preferences = new Foldout { text = UiStrings.T("ui.section.preferences") };
@@ -2218,53 +2216,24 @@ namespace AvatarTuner.Editor.UI
             _dialogArea.Add(dialog);
         }
 
-        /// <summary>The three presets as selectable cards with semantic highlighting.</summary>
-        private VisualElement BuildDialogPresetCards()
+        private VisualElement BuildDialogModes()
         {
-            var card = Card("ui.section.quality");
-            var row = new VisualElement();
-            row.AddToClassList("at-row-top");
-
-            foreach (OptimizationPreset preset in Enum.GetValues(typeof(OptimizationPreset)))
+            var card = Card("workspace.mode");
+            var standard = new Button(() => { _controller.SetOptimizationMode(OptimizationMode.Standard); RefreshView(); })
+                { text = UiStrings.T("workspace.standard") };
+            standard.AddToClassList("at-btn");
+            standard.style.backgroundColor = UiTheme.SelectedBackground;
+            card.Add(standard);
+            card.Add(Line(UiStrings.T("workspace.standardDescription")));
+            var advanced = new Button(() =>
             {
-                var captured = preset;
-                var selected = _controller.Preset == preset;
-                var presetCard = new Button(() =>
-                {
-                    _controller.ApplyPreset(captured);
-                    PresetMemory.Save(SessionState.SetString, captured);
-                    EvaluateRecommendations();
-                    RefreshView();
-                });
-                presetCard.AddToClassList("at-card");
-                presetCard.style.backgroundColor = selected
-                    ? UiTheme.SelectedBackground
-                    : UiTheme.CardBackground;
-                presetCard.style.borderLeftColor = selected ? UiTheme.Accent : UiTheme.CardBorder;
-                presetCard.style.borderRightColor = UiTheme.CardBorder;
-                presetCard.style.borderTopColor = UiTheme.CardBorder;
-                presetCard.style.borderBottomColor = UiTheme.CardBorder;
-                presetCard.style.borderLeftWidth = selected ? 3 : 1;
-                presetCard.style.flexGrow = 1;
-                presetCard.style.minWidth = 150;
-
-                var titleRow = new VisualElement();
-                titleRow.AddToClassList("at-row");
-                titleRow.Add(Dot(selected ? UiTheme.Accent : UiTheme.Neutral));
-                var name = new Label(UiStrings.T(PresetNameKey(preset)));
-                name.AddToClassList("at-text-strong");
-                titleRow.Add(name);
-                presetCard.Add(titleRow);
-
-                var description = new Label(UiStrings.T(PresetDescriptionKey(preset)));
-                description.AddToClassList("at-text-secondary");
-                description.style.color = UiTheme.TextSecondary;
-                presetCard.Add(description);
-
-                row.Add(presetCard);
-            }
-
-            card.Add(row);
+                _dialogOpen = false;
+                OptimizationWorkspace.Open(_controller, RefreshView);
+                RefreshView();
+            }) { text = UiStrings.T("workspace.open") };
+            advanced.AddToClassList("at-btn");
+            card.Add(advanced);
+            card.Add(Line(UiStrings.T("workspace.advancedDescription")));
             return card;
         }
 
@@ -2305,14 +2274,11 @@ namespace AvatarTuner.Editor.UI
             cancel.style.color = UiTheme.Text;
             row.Add(cancel);
 
-            var advanced = new Button(() =>
-            {
-                _dialogOpen = false;
-                RefreshView();
-                OptimizationWorkspace.Open(_controller, RefreshView);
-            }) { text = UiStrings.T("workspace.open") };
-            advanced.AddToClassList("at-btn");
-            row.Add(advanced);
+            var evaluate = new Button(() => { EvaluateRecommendations(); RefreshView(); })
+                { text = UiStrings.T("workspace.evaluate") };
+            evaluate.AddToClassList("at-btn");
+            evaluate.SetEnabled(_controller.Report != null && _controller.CompatibilityAllows && !WindowFlow.IsBusy(_controller.State));
+            row.Add(evaluate);
             row.Add(Spacer());
 
             var confirm = new Button(ConfirmOptimize) { text = UiStrings.T("ui.button.confirmOptimize") };
@@ -2351,7 +2317,6 @@ namespace AvatarTuner.Editor.UI
                 if (_controller.Report != null)
                 {
                     RunAnalyze();
-                    EvaluateRecommendations();
                     RefreshView();
                 }
             });
@@ -2939,35 +2904,5 @@ namespace AvatarTuner.Editor.UI
             }
         }
 
-        private static string PresetNameKey(OptimizationPreset preset)
-        {
-            switch (preset)
-            {
-                case OptimizationPreset.QualityFirst: return "preset.quality-first.name";
-                case OptimizationPreset.SizeFirst: return "preset.size-first.name";
-                default: return "preset.balanced.name";
-            }
-        }
-
-        private static string PresetDescriptionKey(OptimizationPreset preset)
-        {
-            switch (preset)
-            {
-                case OptimizationPreset.QualityFirst: return "preset.quality-first.description";
-                case OptimizationPreset.SizeFirst: return "preset.size-first.description";
-                default: return "preset.balanced.description";
-            }
-        }
-
-        /// <summary>The preset's "what this means for you" line (allowed changes / tradeoffs / warning).</summary>
-        private static string PresetImpactKey(OptimizationPreset preset)
-        {
-            switch (preset)
-            {
-                case OptimizationPreset.QualityFirst: return "preset.quality-first.impact";
-                case OptimizationPreset.SizeFirst: return "preset.size-first.impact";
-                default: return "preset.balanced.impact";
-            }
-        }
     }
 }

@@ -36,6 +36,27 @@ namespace AvatarTuner.Editor.UI
         /// <summary>Estimate quality from source pixels where the texture is readable.</summary>
         public bool MeasureQuality;
         public OptimizationSettings Settings = new OptimizationSettings();
+        private OptimizationSettings PlanningSettings
+        {
+            get
+            {
+                var settings = Settings.ForCurrentMode();
+                if (Settings.Mode == OptimizationMode.Standard)
+                    settings.Global.Platform = EditorUserBuildSettings.activeBuildTarget == BuildTarget.Android
+                        ? OptimizationPlatform.Android : OptimizationPlatform.Windows;
+                return settings;
+            }
+        }
+        private IDictionary<string, TextureOverride> PlanningOverrides
+        {
+            get
+            {
+                if (Settings.Mode == OptimizationMode.Advanced) return Overrides;
+                var exclusions = new Dictionary<string, TextureOverride>(StringComparer.OrdinalIgnoreCase);
+                foreach (var pair in Overrides) if (pair.Value != null && pair.Value.Excluded) exclusions[pair.Key] = pair.Value;
+                return exclusions;
+            }
+        }
         public bool HasEvaluatedPlan;
         private readonly Dictionary<string, CandidateQuality> _candidateCache = new Dictionary<string, CandidateQuality>();
         private string _evaluatedRevision;
@@ -275,9 +296,7 @@ namespace AvatarTuner.Editor.UI
         }
 
         /// <summary>
-        /// Rebuilds the texture plan after configuration changes. With quality measurement
-        /// enabled this is a true two-pass build: plan once, estimate the proposed formats
-        /// from readable source pixels, then plan again with that evidence.
+        /// Rebuilds from cached quality only; importing candidates requires explicit evaluation.
         /// </summary>
         public void RebuildPlan()
         {
@@ -289,7 +308,7 @@ namespace AvatarTuner.Editor.UI
             try
             {
                 HasEvaluatedPlan = false;
-                Plan = TexturePlanBuilder.BuildAdaptive(Report, PresetCatalog.GetPolicy(Preset), Overrides, Settings,
+                Plan = TexturePlanBuilder.BuildAdaptive(Report, PresetCatalog.GetPolicy(OptimizationPreset.Balanced), PlanningOverrides, PlanningSettings,
                     (entry, candidate) =>
                     {
                         CandidateQuality quality;
@@ -341,6 +360,14 @@ namespace AvatarTuner.Editor.UI
             RebuildPlan();
         }
 
+        public void SetOptimizationMode(OptimizationMode mode)
+        {
+            if (Settings.Mode == mode) return;
+            Settings.Mode = mode;
+            SaveSettings();
+            RebuildPlan();
+        }
+
         public bool EvaluateRecommendations(Action<float, string> progress, Func<bool> cancelled)
         {
             if (Report == null || !CompatibilityAllows) return false;
@@ -350,20 +377,22 @@ namespace AvatarTuner.Editor.UI
                 Report = ScanCurrentAvatar();
                 if (Report == null || !Report.ScanSucceeded || !CompatibilityAllows) return false;
                 var revision = CurrentAnalysisRevision(Report);
+                var settings = PlanningSettings;
+                var overrides = PlanningOverrides;
                 var candidateCount = 0;
                 foreach (var entry in Report.Textures)
                 {
-                    var effective = Settings.Resolve(entry.Guid, entry.Category);
                     var category = entry.Category;
                     SemanticCategory corrected;
-                    if (Settings.CategoryCorrections.TryGetValue(entry.Guid, out corrected)) category = corrected;
+                    if (settings.CategoryCorrections.TryGetValue(entry.Guid, out corrected)) category = corrected;
+                    var effective = settings.ResolveForOptimization(entry.Guid, category);
                     TextureOverride ovr;
-                    Overrides.TryGetValue(entry.Guid, out ovr);
-                    candidateCount += AdaptivePlanner.Candidates(TexturePlanBuilder.BuildRequest(entry), PresetCatalog.GetPolicy(Preset),
+                    overrides.TryGetValue(entry.Guid, out ovr);
+                    candidateCount += AdaptivePlanner.Candidates(TexturePlanBuilder.BuildRequest(entry), PresetCatalog.GetPolicy(OptimizationPreset.Balanced),
                         ovr, effective.Settings, category).Count;
                 }
                 using (var evaluator = new CandidateEvaluator(_candidateCache, progress, cancelled, candidateCount))
-                    Plan = TexturePlanBuilder.BuildAdaptive(Report, PresetCatalog.GetPolicy(Preset), Overrides, Settings,
+                    Plan = TexturePlanBuilder.BuildAdaptive(Report, PresetCatalog.GetPolicy(OptimizationPreset.Balanced), overrides, settings,
                         (entry, candidate) =>
                         {
                             var mobile = candidate.Format == TunerTextureFormat.ASTC_4x4 || candidate.Format == TunerTextureFormat.ASTC_6x6 || candidate.Format == TunerTextureFormat.ASTC_8x8;
@@ -415,6 +444,8 @@ namespace AvatarTuner.Editor.UI
 
         public CandidatePreview GetPreview(string guid)
         {
+            if (Settings.Mode != OptimizationMode.Advanced || string.IsNullOrEmpty(guid) || !Settings.IncludedTextures.Contains(guid))
+                return new CandidatePreview { ErrorKey = "workspace.previewUnavailable" };
             var entry = Report == null ? null : Report.FindTexture(guid);
             if (entry != null && Plan != null && HasEvaluatedPlan)
                 foreach (var texture in Plan.Textures)
@@ -467,7 +498,7 @@ namespace AvatarTuner.Editor.UI
                 if (data == null) throw new FormatException();
                 object value;
                 if (data.TryGetValue("settings", out value)) Settings = OptimizationSettings.FromDictionary(value as Dictionary<string, object>);
-                Preset = PresetMemory.ParsePreset(MiniJson.GetString(data, "preset", "balanced"), Preset);
+                Preset = OptimizationPreset.Balanced;
                 if (data.TryGetValue("overrides", out value) && value is Dictionary<string, object> overrides)
                     foreach (var pair in overrides) Overrides[pair.Key] = TextureOverride.FromDictionary(pair.Value as Dictionary<string, object>);
             }
@@ -845,7 +876,7 @@ namespace AvatarTuner.Editor.UI
         {
             try
             {
-                return TexturePlanBuilder.AdaptiveConfigHash(PresetCatalog.GetPolicy(Preset), Overrides, Settings);
+                return TexturePlanBuilder.AdaptiveConfigHash(PresetCatalog.GetPolicy(OptimizationPreset.Balanced), PlanningOverrides, PlanningSettings);
             }
             catch (Exception)
             {

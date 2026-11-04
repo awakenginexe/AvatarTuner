@@ -11,6 +11,10 @@ namespace AvatarTuner.Core
     {
         Global, Category, Custom
     }
+    public enum OptimizationMode
+    {
+        Standard, Advanced
+    }
     public enum OptimizationEffort
     {
         Standard, BestQuality
@@ -59,7 +63,7 @@ namespace AvatarTuner.Core
         {
             var s = new TextureSettings();
             if (d == null) return s;
-            s.DesiredReduction = Clamp(MiniJson.GetDouble(d, "desiredReduction", 4), 1, 16, 4);
+            s.DesiredReduction = Clamp(MiniJson.GetDouble(d, "desiredReduction", 4), 1, double.MaxValue, 4);
             s.MinPsnr = Clamp(MiniJson.GetDouble(d, "minPsnr", 45), 0, 200, 45);
             s.MinSsim = Clamp(MiniJson.GetDouble(d, "minSsim", 0.98), 0, 1, 0.98);
             TunerTextureFormat f;
@@ -92,6 +96,8 @@ namespace AvatarTuner.Core
     }
     public sealed class OptimizationSettings
     {
+        public OptimizationMode Mode = OptimizationMode.Standard;
+        public readonly HashSet<string> IncludedTextures = new HashSet<string>(StringComparer.Ordinal);
         public TextureSettings Global = new TextureSettings();
         public readonly Dictionary<SemanticCategory, TextureSettings> Categories = new Dictionary<SemanticCategory, TextureSettings>();
         public readonly Dictionary<string, TextureSettings> Textures = new Dictionary<string, TextureSettings>(StringComparer.Ordinal);
@@ -114,8 +120,36 @@ namespace AvatarTuner.Core
                 Source = hasT ? SettingsSource.Custom : hasC ? SettingsSource.Category : SettingsSource.Global
             };
         }
+        public EffectiveTextureSettings ResolveForOptimization(string guid, SemanticCategory category)
+        {
+            var effective = Resolve(guid, category);
+            effective.Settings.Excluded |= Mode == OptimizationMode.Advanced && (guid == null || !IncludedTextures.Contains(guid));
+            return effective;
+        }
+        public OptimizationSettings ForCurrentMode()
+        {
+            if (Mode == OptimizationMode.Advanced) return this;
+            var automatic = new OptimizationSettings { Global = AutomaticSettings(Global) };
+            foreach (var category in Categories) if (category.Value != null && (category.Value.Excluded || category.Value.ProtectQuality))
+                automatic.Categories[category.Key] = AutomaticSettings(category.Value);
+            foreach (var texture in Textures) if (texture.Value != null && (texture.Value.Excluded || texture.Value.ProtectQuality))
+                automatic.Textures[texture.Key] = AutomaticSettings(texture.Value);
+            foreach (var correction in CategoryCorrections) automatic.CategoryCorrections[correction.Key] = correction.Value;
+            return automatic;
+        }
+        private static TextureSettings AutomaticSettings(TextureSettings saved)
+        {
+            var automatic = TextureSettings.ForPreset(OptimizationPreset.Balanced);
+            automatic.Excluded = saved != null && saved.Excluded;
+            automatic.ProtectQuality = saved != null && saved.ProtectQuality;
+            return automatic;
+        }
         public Dictionary<string, object> ToDictionary()
         {
+            var included = new List<object>();
+            var includedGuids = new List<string>(IncludedTextures);
+            includedGuids.Sort(StringComparer.Ordinal);
+            foreach (var guid in includedGuids) included.Add(guid);
             var cats = new Dictionary<string, object>();
             foreach (var p in Categories) if (p.Value != null) cats[p.Key.ToString()] = p.Value.ToDictionary();
             var textures = new Dictionary<string, object>();
@@ -124,6 +158,7 @@ namespace AvatarTuner.Core
             foreach (var p in CategoryCorrections) corrections[p.Key] = p.Value.ToString();
             return new Dictionary<string, object>
             {
+                { "mode", Mode.ToString() }, { "includedTextures", included },
                 { "global", (Global ?? new TextureSettings()).ToDictionary() },
                 { "categories", cats },
                 { "textures", textures },
@@ -136,6 +171,14 @@ namespace AvatarTuner.Core
             var s = new OptimizationSettings();
             if (d == null) return s;
             object v;
+            OptimizationMode mode;
+            if (Enum.TryParse(MiniJson.GetString(d, "mode", "Standard"), out mode) && Enum.IsDefined(typeof(OptimizationMode), mode)) s.Mode = mode;
+            var included = MiniJson.GetList(d, "includedTextures");
+            if (included != null) foreach (var item in included)
+            {
+                var guid = item as string;
+                if (!string.IsNullOrEmpty(guid)) s.IncludedTextures.Add(guid);
+            }
             if (d.TryGetValue("global", out v)) s.Global = TextureSettings.FromDictionary(v as Dictionary<string, object>);
             if (d.TryGetValue("categories", out v) && v is Dictionary<string, object> cats) foreach (var p in cats)
             {
@@ -152,7 +195,10 @@ namespace AvatarTuner.Core
         }
         public string ToHashToken()
         {
-            var tokens = new List<string> { (Global ?? new TextureSettings()).ToHashToken() };
+            var tokens = new List<string> { Mode.ToString(), (Global ?? new TextureSettings()).ToHashToken() };
+            var included = new List<string>(IncludedTextures);
+            included.Sort(StringComparer.Ordinal);
+            tokens.AddRange(included);
             var keys = new List<string>();
             foreach (var p in Categories) keys.Add("C:" + p.Key);
             foreach (var p in Textures) keys.Add("T:" + p.Key);

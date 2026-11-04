@@ -10,9 +10,9 @@ All items are **pending** until you perform them and supply results. No Unity or
 ## Content and settings
 
 - [ ] Include color/sRGB and linear textures, HDR, normal maps, packed masks, MatCaps, ramps, transparent hair, detailed face and eyes, mixed/shared usage and an unknown or ambiguous case. Record categories, evidence, protections and corrections. Compare colors, mask channels, transparency edges and shader appearance before and after; HDR/normal/ambiguous candidates that cannot be validated should remain unchanged.
-- [ ] Check Global → Category → Custom precedence. Create overrides, change the parent and confirm the snapshot stays fixed; reset and confirm inheritance returns. Test selection, bulk edits, exclusions and protected textures. Change Quick presets and confirm Custom overrides persist. Close/reopen the project and confirm per-avatar settings persist; test a second avatar.
-- [ ] Run each Quick quality mode and Advanced settings with Standard and Best Quality. Explicitly evaluate candidates and inspect choices, unmet ratio goals and estimates before applying. Cancel during evaluation and verify temporary assets are cleaned up and source files remain unchanged. Repeat optimization, including a forced failure if safely reproducible, and check rollback and generated asset references.
-- [ ] Remember Quality First, then select an avatar with no saved settings: verify Global PSNR is 50 dB and SSIM is 0.995. Turn off Overwrite Generated, create outputs, and verify both Quick and Advanced request confirmation before replacing them.
+- [ ] Open Optimize Avatar, switch between Standard and Advanced, and edit settings. Confirm that no candidate import or compression occurs until explicitly clicking Evaluate candidates. In Standard, review the proposed changes before Confirm & Optimize; Cancel must not apply anything.
+- [ ] In Advanced start with no checked textures, include only selected ones, enter different custom targets (including fractions and values above 16x), evaluate and confirm. Unchecked/protected textures must stay unchanged. Check Global → Category → Custom precedence, reset, bulk edits and exclusion controls. Switch modes and close/reopen: Advanced tuning and selection must persist per avatar. Test a second avatar.
+- [ ] Verify Advanced targets choose the closest acceptable SDK-memory estimate; inspect original/optimized/difference previews and actual achieved ratios. Test default and Best Quality encoding effort. Cancel evaluation and check temporary cleanup; repeat with a safe forced failure and verify rollback. Turn off Overwrite Generated and verify both modes request confirmation before replacing outputs.
 - [ ] After evaluation, change a renderer material slot, shader/material contents, hierarchy, or protection component. Apply must refuse the stale review; evaluate again and review the new result. Include duplicate and empty material slots and confirm slot indices remain correct.
 
 ## Preview, apply and compatibility
@@ -25,7 +25,7 @@ All items are **pending** until you perform them and supply results. No Unity or
 
 ## Memory and VRChat
 
-- [ ] Record source and generated imported dimensions, formats and actual mip counts, including shared textures, skipped textures and unknown formats/shapes. Independently compare block/mip arithmetic and deduplication with the displayed source and generated totals; note incomplete totals and the reported basis. Record units (MiB versus MB).
+- [ ] Record source and generated imported dimensions, formats and actual mip counts, including shared textures, skipped textures and unknown formats/shapes. Compare the SDK-compatible format/mip arithmetic and deduplication with the displayed MB totals; check the Current Avatar SDK readout against the Builder for the same avatar and platform.
 - [ ] Build and inspect the same avatar in VRChat before and after each relevant mode. Record the actual texture-memory metric and visual behavior under the same conditions. Record download/bundle size separately: it is not GPU texture memory or generated disk size. Explain any platform or build-pipeline differences observed rather than treating an estimate as a VRChat measurement.
 
 ## Return evidence
