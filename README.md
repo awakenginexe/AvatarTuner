@@ -2,225 +2,31 @@
 
 # AvatarTuner
 
-Texture memory optimization for VRChat avatars, inside the Unity Editor. AvatarTuner analyzes
-an avatar's textures, plans safe format/resolution changes, generates optimized copies, and
-applies them to the avatar's own material references — without ever touching your original
-assets.
+AvatarTuner analyzes and optimizes VRChat avatar texture memory in the Unity Editor. It generates copies of textures, materials and, where needed, animation assets; it does not modify original assets. It does not reduce mesh triangles or merge meshes or materials.
 
-AvatarTuner optimizes **texture assets and material references**. It does not reduce mesh
-triangles, does not merge meshes or materials, and does not resolve every VRChat performance
-warning.
+## Installation and status
 
-## What it does
+Version 2.0.0 is in preparation and has not been published. For local validation, install this checkout as a local package in a VCC project using Unity 2022.3.22f1. Existing published versions are available through the [VCC repository](https://awakenginexe.github.io/AvatarTuner/index.json) and [GitHub Releases](https://github.com/awakenginexe/AvatarTuner/releases). Do not expect those sources to contain 2.0.0 yet. The VRChat SDK is not a compile-time dependency; NDMF is optional for build-time application.
 
-1. Scan an avatar: textures, materials, renderers, animation-driven material swaps, and
-   third-party tool usage (Modular Avatar, VRCFury, NDMF, Avatar Optimizer,
-   d4rkAvatarOptimizer).
-2. Plan: per-texture decisions from a preset policy — protected textures (third-party tools,
-   animation-driven systems) are never touched.
-3. Optimize: generate optimized texture copies into `Assets/AvatarTuner-Generated/`.
-4. Apply: assign optimized material clones to the scene avatar's renderers (Undo-recorded,
-   prefab-override aware), with material-swap animations remapped onto generated clip and
-   controller copies.
+## Usage
 
-Original source textures, materials, prefabs, animations and animator controllers are never
-modified.
+1. Open **Tools → AvatarTuner**, select a scene avatar and analyze it.
+2. Open the optimization workspace. Quick settings adjust quality thresholds; Advanced exposes Global, Category and per-texture Custom settings, classification evidence and overrides. Check protected and excluded textures before proceeding.
+3. Explicitly evaluate candidates, inspect the selected texture preview and differences, and review the estimated memory summary before confirming optimization. Evaluation can be cancelled.
+4. Generated assets are stored under `Assets/AvatarTuner-Generated/`. Scene application uses generated material copies and supports Undo and restore. Safely remappable material-swap animations use generated clips and controllers; unsafe cases retain originals and report limitations. Optional NDMF application operates at build time.
 
-## Key features
+Settings are stored per avatar in the project's `Library`. Creating a Category or Custom override takes a snapshot of its inherited settings; subsequent parent changes do not update that override. Reset returns it to inheritance. Changing Quick quality thresholds preserves Custom overrides.
 
-- Three optimization presets with honest trade-off descriptions (see below).
-- Direct scene application: the avatar in the scene really references the optimized
-  materials; you can inspect them in the Inspector before any build.
-- Automatic change detection: reverting a material, adding an unoptimized renderer, or
-  editing sources is detected and reported (Changes Detected / Re-optimization Required).
-- One-click restore of the original material references.
-- Optional build-time application through NDMF (when installed) for users who prefer
-  keeping the scene untouched.
-- Per-texture overrides: exclude, keep resolution, keep format, force max size, force format.
-- Localization: English, Thai (ไทย) and Simplified Chinese (简体中文), switchable live.
-- Full transparency: estimates are always labelled as computed estimates; nothing is
-  presented as a measurement unless it was measured.
+## Candidate selection and safety
 
-## Compatibility
+The adaptive planner chooses the smallest candidate that satisfies quality constraints. The memory ratio is an advisory goal and may remain unmet. Standard uses Unity Mitchell resizing and importer compression quality 50. Best Quality uses quality 100 and compares Unity Mitchell and Bilinear; PNG/JPEG candidates can also use Area, Lanczos3 and Mitchell resampling. Unity's native importer performs compression; no external encoder or private maximum-effort BC7 API is used.
 
-- **Unity 2022.3** (verified on 2022.3.22f1).
-- VRChat SDK avatars (Avatars 3.0). AvatarTuner has no compile-time dependency on the
-  VRChat SDK.
-- Optional: **NDMF** (`nadena.dev.ndmf`) enables the build-time application pass. Without
-  NDMF, direct scene application remains fully functional.
-- Known optimizers (AAO / d4rkAvatarOptimizer) are detected; conflicting transformations
-  are skipped with an actionable warning instead of racing them.
+HDR, normal maps and ambiguous shapes are preserved when imported candidates cannot be validated safely. BC6H is recognized for memory arithmetic and reporting, not new HDR transforms. ASTC 4x4, 6x6 and 8x8 are Android-only, requiring an active Android build target and decoding support. Existing optimizer protections and exclusions remain in effect.
 
-## Installation
+## Understanding memory
 
-### Option 1: VRChat Creator Companion (Recommended)
+Planned numbers and estimates calculated from imported dimensions, format and mip count have different bases. Unknown formats or shapes make totals incomplete; shared textures are deduplicated. Neither estimate is a measurement of the built avatar, download size or disk size. Compare with VRChat's actual performance metrics and check units (MiB versus MB). Legacy manifests can be read and restored, but their measured basis is unknown and older-version outputs are stale; re-optimize to use the current version.
 
-The easiest way to install and keep AvatarTuner updated automatically.
+The 2.0.0 Unity Editor and VRChat behavior has not yet been tested. Follow the [manual testing checklist](docs/Manual-Testing-2.0.0.md) and record actual results before relying on it. Offline tests can be run with `dotnet run --project Tests/Standalone~/AvatarTuner.StandaloneTests.csproj`.
 
-[**➕ Add to VCC (One-Click Install)**](vcc://vpm/addRepo?url=https%3A%2F%2Fawakenginexe.github.io%2FAvatarTuner%2Findex.json)
-
-#### Or Add Repository Manually:
-1. Copy the VPM repository URL:
-   ```text
-   https://awakenginexe.github.io/AvatarTuner/index.json
-   ```
-2. In VCC, open **Settings → Packages**.
-3. Click **Add Repository** in the top right.
-4. Paste the URL and confirm.
-5. Open your project, go to **Manage Packages**, find **AvatarTuner**, and click **Install**.
-
-> [!TIP]
-> **Updating:** When a new version is released, VCC will display an **Update** button next to AvatarTuner under **Manage Packages**.
-
-> [!NOTE]
-> **Switching from a previous .unitypackage install:** If you previously installed AvatarTuner via `.unitypackage`, verify you have no personal assets or custom modifications in `Assets/AvatarTuner/`, then delete `Assets/AvatarTuner/` (and its `.meta` file) before adding the package via VCC to avoid duplicate file conflicts. Existing avatar references and generated assets remain unaffected.
-
----
-
-### Option 2: Unity Package (.unitypackage)
-
-If you prefer not using VCC:
-
-1. Download the latest **`AvatarTuner-v1.0.0.unitypackage`** from [GitHub Releases](https://github.com/awakenginexe/AvatarTuner/releases/latest).
-2. In your Unity project, go to **Assets → Import Package → Custom Package…** and select the file.
-3. Open the window via **Tools → AvatarTuner**.
-
----
-
-### Option 3: Unity Package Manager (Git URL)
-
-1. In Unity, open **Window → Package Manager**.
-2. Click the **`+`** icon in the top left and select **Add package from git URL…**.
-3. Paste:
-   ```text
-   https://github.com/awakenginexe/AvatarTuner.git
-   ```
-
----
-
-The package contains: `Core/` (pure logic), `Editor/` (window, scanner, optimizer,
-tracking, application, NDMF integration), `Editor/Localization/Translations/` (three
-languages), `package.json`, and the assembly definitions.
-
-## Quick start
-
-1. Open **Tools → AvatarTuner**.
-2. Drag your avatar root from the Hierarchy into the avatar area (or use the picker).
-3. Click **Analyze Avatar**.
-4. Click **Optimize Avatar** → the configuration dialog opens: choose a preset, review the
-   planned changes, then **Confirm & Optimize**.
-5. The optimized textures are generated and applied to the scene avatar. The Overview shows
-   the honest status (e.g. *Optimized and Applied to Avatar*) and the memory numbers with
-   their basis (computed vs measured).
-6. Changed your mind? **Restore Original Textures** on the Optimization Results page
-   reverts the material references (generated files are kept).
-
-## Optimization presets
-
-| Preset | Behaviour |
-| ------ | --------- |
-| **Quality First** | Visual fidelity first. Resolution is never reduced; only changes that should be visually invisible are allowed. |
-| **Balanced** (default, recommended) | A middle ground: meaningful texture-memory reduction while keeping differences hard to see (one resolution step down, never below 1024). |
-| **Size First** | Maximum memory reduction first; visible quality loss is possible. Review the affected textures individually before uploading. |
-
-## Screenshots
-
-Measured with VRChat's own Performance Breakdown on the same avatar (same pose, same mesh —
-116,699 triangles in every capture; AvatarTuner changes no meshes).
-
-### Original
-
-![Original](docs/images/original.png)
-
-### Quality First
-
-![Quality First](docs/images/quality-first.png)
-
-### Balanced
-
-![Balanced](docs/images/balanced.png)
-
-### Size First
-
-![Size First](docs/images/size-first.png)
-
-## Performance and size comparison
-
-Measured on the same avatar with VRChat's Performance Breakdown (values are exactly as
-displayed by VRChat):
-
-| Preset | VRChat Texture Memory (MB) | VRChat Download Size (MB) | Texture Memory Reduction | Download Size Reduction | Visual quality notes |
-| ------ | --- | --- | --- | --- | -------------------- |
-| Original | 221.07 | 18.34 | — | — | Baseline |
-| Quality First | 108.45 | 20.99 | 50.9 % | −14.4 % (larger) | Resolution untouched; download size can grow slightly because quality-preserving formats are less aggressively compressed |
-| Balanced | 63.45 | 10.89 | 71.3 % | 40.6 % | Differences hard to see in normal use |
-| Size First | 53.20 | 9.01 | 75.9 % | 50.9 % | Largest reduction; visual differences not separately evaluated — review flagged textures before uploading |
-
-Reduction formula, computed independently per column:
-`Reduction (%) = (Original − Optimized) / Original × 100`.
-
-Results vary with the model, its textures, shaders and settings. These numbers are from one
-real avatar and are not a promise for any other avatar.
-
-### About the measurement difference between AvatarTuner and VRChat
-
-AvatarTuner calculates texture memory from asset data and optimization settings. These
-values are estimates and may differ from VRChat's Performance Breakdown due to
-platform-specific texture formats, mipmaps, compression, asset references, and build-time
-processing. Download size and GPU texture memory are different measurements. For the most
-accurate comparison, check the actual avatar build in VRChat.
-
-In detail:
-
-- AvatarTuner computes GPU texture memory from texture dimensions, formats, mipmap chains
-  and the optimization data it actually processed.
-- VRChat reports from its own analysis of the built avatar in its own build/runtime
-  environment.
-- Platform overrides, compression formats, mipmaps, animated or additional material
-  references, and other build-time optimization tools can all change the final numbers.
-- The Editor's computed GPU texture memory is **not** the same thing as download size.
-- The disk size of the generated texture assets is **not** the same thing as VRChat texture
-  memory.
-- Only real VRChat measurements (like the table above) are presented as VRChat results;
-  AvatarTuner's in-Editor values stay labelled as computed estimates.
-
-## Known limitations
-
-- Direct application requires the avatar to be a **scene object** (a prefab instance in the
-  scene is fine); selecting a prefab asset from the Project window generates outputs without
-  applying them (applying would modify the source asset).
-- Material-swap animations are remapped onto generated clip/controller copies when the clip
-  and controller are real assets. References that cannot be remapped safely keep the original
-  assets and the avatar is marked **Partially Optimized** — never silently skipped.
-- Detected optimizer conflicts (AAO / d4rkAvatarOptimizer components on the avatar) skip the
-  conflicting transformation with a warning.
-- Change detection runs on selection, window open, refresh, analysis and optimization — not
-  on every editor frame.
-- AvatarTuner does not reduce triangle counts, mesh counts or material slot counts.
-
-## Restoring the original textures
-
-Optimization Results → **Restore Original Textures**. Every renderer slot returns to its
-original material, and animators return to their original controllers (Undo-recorded;
-generated files are kept for a later re-application). Your original assets were never
-modified, so a full cleanup is also possible via **Clean Up Generated Files**.
-
-## Safety guarantees
-
-- Original textures, materials, prefabs, animations and controllers are never modified.
-- Everything AvatarTuner generates lives under `Assets/AvatarTuner-Generated/` and is
-  tracked in a manifest (`avatartuner-manifest.json`) with hashes and provenance.
-- Optimization requires an explicit review-and-confirm step; nothing runs automatically.
-- Failed applications roll back their scene changes; the manifest never records a success
-  that did not happen.
-
-## Credits and third-party notices
-
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): AvatarTuner is an original
-implementation. It optionally integrates with NDMF (`nadena.dev.ndmf`, MIT) when installed,
-and detects — by name only — Modular Avatar, VRCFury, Avatar Optimizer and
-d4rkAvatarOptimizer. No third-party source code is bundled.
-
-## License
-
-[MIT](LICENSE) — Copyright (c) 2026 Awake Ngine XE.
+See [changelog](CHANGELOG.md), [third-party notices](THIRD_PARTY_NOTICES.md), and [MIT license](LICENSE).

@@ -239,6 +239,7 @@ namespace AvatarTuner.Editor.UI
             {
                 LastAnalyzeRestored = false;
                 var options = new ScanOptions();
+                options.IncludeInactive = IncludeInactive;
                 options.RecordedState = RecordedState;
                 Report = AvatarScanner.Scan(Avatar, options);
                 if (Report == null || !Report.ScanSucceeded)

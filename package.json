@@ -1,6 +1,6 @@
 {
   "name": "com.avatartuner.tool",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "displayName": "AvatarTuner",
   "description": "Safe, non-destructive VRChat avatar optimization toolkit for Unity Editor. Dependency-aware avatar scanning, quantifiable texture compression planning, generated-asset (non-destructive) output, persistent change tracking, and a localized (English / Thai / Simplified Chinese) editor UI. Targets VRChat Avatars SDK 3 on Windows PC.",
   "unity": "2022.3",

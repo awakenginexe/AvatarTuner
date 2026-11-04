@@ -42,7 +42,7 @@ namespace AvatarTuner.StandaloneTests
             var assembly = Assembly.GetExecutingAssembly();
             var tests = TestRunner.Discover(assembly);
 
-            Console.WriteLine("AvatarTuner v1.0.0 - standalone Core test suite");
+            Console.WriteLine("AvatarTuner v2.0.0 - standalone Core test suite");
             Console.WriteLine("Runtime: " + System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
             Console.WriteLine("Discovered " + tests.Count.ToString(CultureInfo.InvariantCulture) + " test(s).");
             Console.WriteLine();

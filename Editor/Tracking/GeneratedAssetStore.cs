@@ -38,7 +38,7 @@ namespace AvatarTuner.Editor.Tracking
         public const string ManifestPath = GeneratedRoot + "/avatartuner-manifest.json";
 
         /// <summary>The AvatarTuner version stamped into manifests and snapshots.</summary>
-        public const string ToolVersion = "1.0.1";
+        public const string ToolVersion = "2.0.0";
 
         // ===================================================================== load / save
 

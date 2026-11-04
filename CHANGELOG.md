@@ -4,6 +4,22 @@ All notable changes to AvatarTuner are documented here, newest version first.
 Release notes are written for users; the GitHub Release description for each version is
 extracted from the matching section below.
 
+## v2.0.0
+
+### Added and changed
+
+- Quick and Advanced workspace with adaptive candidate evaluation, texture inventory, inherited Global, Category and Custom settings, and selected-texture preview.
+- Classifies textures using their usage and reports the evidence; users can correct categories. Shared textures are counted once, and unknown memory remains explicitly incomplete.
+- Chooses the smallest candidate meeting quality constraints; the memory ratio is a goal and may not be reached. Standard uses Unity Mitchell resizing; Best Quality also compares Unity Bilinear and, for PNG/JPEG, Area, Lanczos3 and Mitchell. Native importer compression quality is 50 or 100 respectively.
+- Reports planned and imported-property-based memory estimates separately; neither is a VRChat measurement. ASTC 4x4, 6x6 and 8x8 are Android-only and require an active Android target and decoding support.
+- Settings persist per avatar in the project Library. Category and Custom overrides copy inherited settings when created; reset returns to inheritance. Quick quality changes preserve Custom overrides.
+
+### Migration and limitations
+
+- Legacy manifests remain readable and restore remains available. Their measured basis is unknown, and outputs from older tool versions are stale and require re-optimization.
+- HDR, normal maps and ambiguous shapes are preserved when imported candidates cannot be validated. BC6H is recognized for memory arithmetic and reporting; no new HDR transformation is provided.
+- Original assets remain unchanged; generated copies, Undo, restore and optional NDMF build application remain available. Unity and VRChat validation of 2.0.0 is pending; this version has not been published.
+
 ## v1.0.1
 
 ### Fixed
