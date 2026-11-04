@@ -47,5 +47,15 @@ namespace AvatarTuner.StandaloneTests
             Assert.AreEqual(SemanticCategory.Eyes, result.Category, "animated");
             Assert.IsTrue(result.Reasons.Count > 0, "reason");
         }
+
+        [Test("specific bone evidence helps generic meshes while generic skeleton roots stay unknown")]
+        public static void RelevantBonesAreEvidence()
+        {
+            var result = SemanticClassifier.Classify("x", new[] { new SemanticEvidence { RendererPath = "Avatar/Mesh", BoneName = "Hair_Front" } });
+            Assert.AreEqual(SemanticCategory.Hair, result.Category, "specific root bone");
+            Assert.AreEqual(SemanticConfidence.Medium, result.Confidence, "bone hint is fallible");
+            result = SemanticClassifier.Classify("x", new[] { new SemanticEvidence { RendererPath = "Avatar/Mesh", BoneName = "Hips" } });
+            Assert.AreEqual(SemanticCategory.Unknown, result.Category, "generic skeleton root provides no category");
+        }
     }
 }

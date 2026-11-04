@@ -13,6 +13,7 @@ namespace AvatarTuner.Core
         public string ShaderName;
         public string PropertyName;
         public string MeshName;
+        public string BoneName;
         public bool IsAnimated;
     }
 
@@ -90,6 +91,7 @@ namespace AvatarTuner.Core
                         key = item.IsAnimated ? "semantic.reason.animation" : "semantic.reason.renderer"; strength = SemanticConfidence.High;
                         if (found.Count == 0) { source = item.MaterialName; found = Find(source); key = "semantic.reason.material"; strength = SemanticConfidence.Medium; }
                         if (found.Count == 0) { source = item.MeshName; found = Find(source); key = "semantic.reason.mesh"; strength = SemanticConfidence.Medium; }
+                        if (found.Count == 0) { source = item.BoneName; found = Find(source); key = "semantic.reason.bone"; strength = SemanticConfidence.Medium; }
                         if (found.Count == 0) { source = item.PropertyName; found = property; key = "semantic.reason.property"; strength = SemanticConfidence.Medium; }
                         if (found.Count == 0) { source = item.ShaderName; found = Find(source); key = "semantic.reason.shader"; strength = SemanticConfidence.Low; }
                     }

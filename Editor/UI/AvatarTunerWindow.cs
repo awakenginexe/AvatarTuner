@@ -1187,12 +1187,12 @@ namespace AvatarTuner.Editor.UI
             var savings = new VisualElement();
             savings.AddToClassList("at-row");
             savings.style.marginTop = 4;
-            savings.Add(BigValue(UiStrings.T("ui.label.sourceMemory"), trio.BeforeText, UiTheme.TextSecondary));
+            savings.Add(BigValue(UiStrings.T("ui.label.sourceMemory"), numbers.HasSource ? trio.BeforeText : UiStrings.T("ui.label.unknown"), UiTheme.TextSecondary));
             savings.Add(BigValue("→", string.Empty, UiTheme.Neutral));
-            savings.Add(BigValue(UiStrings.T("ui.label.outputMemory"), trio.AfterText, UiTheme.Accent));
+            savings.Add(BigValue(UiStrings.T("ui.label.outputMemory"), numbers.HasOutput ? trio.AfterText : UiStrings.T("ui.label.unknown"), UiTheme.Accent));
             savings.Add(BigValue("→", string.Empty, UiTheme.Neutral));
             savings.Add(BigValue(UiStrings.T("ui.label.potentialSavings"),
-                trio.SavingText + " (" + trio.SavingPercentText + ")", UiTheme.Info));
+                numbers.HasSource && numbers.HasOutput ? trio.SavingText + " (" + trio.SavingPercentText + ")" : UiStrings.T("ui.label.unknown"), UiTheme.Info));
             card.Add(savings);
 
             AddMemoryBasis(card, numbers);
@@ -2414,24 +2414,6 @@ namespace AvatarTuner.Editor.UI
         private void RunOptimize()
         {
             ClearNotice();
-
-            // The configuration dialog was the explicit confirmation: the reviewed plan
-            // and settings were on screen and the user pressed Confirm & Optimize. Only
-            // the overwrite guard may ask one extra question before writing outputs.
-            if (!_controller.OverwriteGenerated && _controller.HasRecordedOutputs)
-            {
-                var existing = _controller.RecordedState != null
-                    ? _controller.RecordedState.Generated.Count.ToString(CultureInfo.InvariantCulture)
-                    : "0";
-                if (!EditorUtility.DisplayDialog(
-                        UiStrings.T("dlg.overwrite.title"),
-                        UiStrings.T("dlg.overwrite.message", existing),
-                        UiStrings.T("dlg.yes"),
-                        UiStrings.T("dlg.no")))
-                {
-                    return;
-                }
-            }
 
             _cancelRequested = false;
             bool succeeded;

@@ -533,6 +533,8 @@
     "semantic.reason.mesh": "Mesh: {0}",
     "semantic.reason.property": "Texture property: {0}",
     "semantic.reason.shader": "Shader: {0}",
-    "semantic.reason.filename": "Filename hint: {0}"
+    "semantic.reason.filename": "Filename hint: {0}",
+    "plan.note.adaptiveAccepted": "Smallest candidate within the quality limits: {0}, importer quality request {1}, PSNR {2} dB, SSIM {3}.",
+    "semantic.reason.bone": "Bone hint: {0}"
   }
 }

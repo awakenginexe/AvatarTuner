@@ -3,6 +3,7 @@
 // Unity free on purpose: these models describe what a generation run produced and are
 // consumed by the manifest/change-tracking layer and by the offline tests.
 
+using System;
 using System.Collections.Generic;
 using AvatarTuner.Editor.Analysis;
 
@@ -51,5 +52,13 @@ namespace AvatarTuner.Editor.Optimization
         public long PlannedTargetBytesTotal;
 
         internal int ErrorCount = 0;
+
+        internal bool CancelIfRequested(Func<bool> cancelled)
+        {
+            if (!Cancelled && (cancelled == null || !cancelled())) return false;
+            Cancelled = true;
+            Succeeded = false;
+            return true;
+        }
     }
 }

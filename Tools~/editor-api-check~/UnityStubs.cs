@@ -330,6 +330,7 @@ namespace UnityEngine
     {
         public Mesh sharedMesh { get; set; }
         public Transform[] bones { get; set; }
+        public Transform rootBone { get; set; }
     }
 
     public class Motion : Object
@@ -1075,6 +1076,11 @@ namespace UnityEditor
     public static class Undo
     {
         public static void RecordObject(Object objectToUndo, string name) { }
+        public static void IncrementCurrentGroup() { }
+        public static int GetCurrentGroup() { return 0; }
+        public static void CollapseUndoOperations(int groupIndex) { }
+        public static void FlushUndoRecordObjects() { }
+        public static void RevertAllDownToGroup(int group) { }
     }
 
     public static class PrefabUtility

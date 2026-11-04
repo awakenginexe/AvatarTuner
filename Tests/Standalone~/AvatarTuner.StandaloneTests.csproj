@@ -39,6 +39,7 @@
       the plan builder and the report model are exercised without a Unity installation.
     -->
     <Compile Include="..\..\Editor\Analysis\AvatarAnalysisModel.cs" />
+    <Compile Include="..\..\Editor\Analysis\AnalysisRevision.cs" />
     <Compile Include="..\..\Editor\Optimization\TextureFormatMapping.cs" />
     <Compile Include="..\..\Editor\Optimization\TexturePlanBuilder.cs" />
     <Compile Include="..\..\Editor\Optimization\TextureGenerationModels.cs" />

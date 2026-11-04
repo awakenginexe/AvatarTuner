@@ -87,6 +87,7 @@ namespace AvatarTuner.Editor.Tracking
             manifest.ToolVersion = ToolVersion;
             manifest.ModifiedUtc = Stamp(DateTime.UtcNow);
 
+            var temporary = Path.Combine(GeneratedRoot, ".manifest-" + Guid.NewGuid().ToString("N") + ".tmp");
             try
             {
                 if (!TextureOptimizer.EnsureFolder(GeneratedRoot))
@@ -95,7 +96,10 @@ namespace AvatarTuner.Editor.Tracking
                     return false;
                 }
 
-                File.WriteAllText(ManifestPath, manifest.ToJson(true), new UTF8Encoding(false));
+                Directory.CreateDirectory(Path.GetDirectoryName(temporary));
+                File.WriteAllText(temporary, manifest.ToJson(true), new UTF8Encoding(false));
+                if (File.Exists(ManifestPath)) File.Replace(temporary, ManifestPath, null);
+                else File.Move(temporary, ManifestPath);
                 AssetDatabase.ImportAsset(ManifestPath);
                 return true;
             }
@@ -104,6 +108,7 @@ namespace AvatarTuner.Editor.Tracking
                 errorKey = "error.ioFailed";
                 return false;
             }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
 
         // ===================================================================== build application
@@ -245,8 +250,7 @@ namespace AvatarTuner.Editor.Tracking
 
         /// <summary>
         /// Records a completed run for one avatar, replacing its previous record. Outputs
-        /// from the previous run that this run no longer produces are deleted first
-        /// (regeneration keeps the generated folder exactly in sync with the manifest).
+        /// from the previous run are removed only after the new recovery record is saved.
         /// </summary>
         public static CleanupOutcome RecordRun(AvatarOptimizationState state, out string errorKey)
         {
@@ -265,14 +269,9 @@ namespace AvatarTuner.Editor.Tracking
             }
 
             var previous = load.Manifest.FindAvatar(state.SourceRootGuid);
-            if (previous != null)
-            {
-                var stale = CleanupPlanner.RemovedOutputs(previous, state);
-                DeleteAll(stale, outcome);
-            }
-
             load.Manifest.Upsert(state);
-            Save(load.Manifest, out errorKey);
+            if (!Save(load.Manifest, out errorKey)) return outcome;
+            if (previous != null) DeleteAll(CleanupPlanner.RemovedOutputs(previous, state), outcome);
             return outcome;
         }
 

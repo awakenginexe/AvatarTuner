@@ -45,6 +45,22 @@ namespace AvatarTuner.Editor.Optimization
             Action<float, string> progress,
             Func<bool> cancelled)
         {
+            var committed = false;
+            try
+            {
+                using (var transaction = new GeneratedFileTransaction(GeneratedRoot, "Library/AvatarTuner/Transactions"))
+                {
+                    var result = Generate(report, plan, outputFolder, progress, cancelled, transaction);
+                    if (result.Succeeded) { transaction.Commit(); committed = true; }
+                    return result;
+                }
+            }
+            finally { if (!committed) AssetDatabase.Refresh(); }
+        }
+
+        internal static TextureGenerationResult Generate(AvatarAnalysisReport report, TextureOptimizationPlan plan,
+            string outputFolder, Action<float, string> progress, Func<bool> cancelled, GeneratedFileTransaction transaction)
+        {
             if (plan == null)
             {
                 throw new ArgumentNullException("plan");
@@ -70,6 +86,9 @@ namespace AvatarTuner.Editor.Optimization
                 return result;
             }
 
+            var allowedRoot = Path.GetFullPath(GeneratedRoot) + Path.DirectorySeparatorChar;
+            if (!Path.GetFullPath(result.OutputFolder).StartsWith(allowedRoot, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Generated output must stay under " + GeneratedRoot);
             if (!EnsureFolder(result.OutputFolder))
             {
                 AddError(result, "error.ioFailed", result.OutputFolder);
@@ -77,17 +96,10 @@ namespace AvatarTuner.Editor.Optimization
                 return result;
             }
 
-            var allowedRoot = Path.GetFullPath(GeneratedRoot) + Path.DirectorySeparatorChar;
-            if (!Path.GetFullPath(result.OutputFolder).StartsWith(allowedRoot, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Generated output must stay under " + GeneratedRoot);
-            using (var transaction = new GeneratedFileTransaction(GeneratedRoot, "Library/AvatarTuner/Transactions"))
-            {
             for (var i = 0; i < targets.Count; i++)
             {
-                if (cancelled != null && cancelled())
+                if (result.CancelIfRequested(cancelled))
                 {
-                    result.Cancelled = true;
-                    result.Findings.Add(new AnalysisFinding("error.cancelled"));
                     break;
                 }
 
@@ -95,6 +107,7 @@ namespace AvatarTuner.Editor.Optimization
                 {
                     progress((float)i / targets.Count, "opt.phase.textures");
                 }
+                if (result.CancelIfRequested(cancelled)) break;
 
                 transaction.Record(BuildTargetPath(result.OutputFolder, targets[i]));
                 GenerateOne(targets[i], result);
@@ -105,14 +118,13 @@ namespace AvatarTuner.Editor.Optimization
                 progress(1.0f, "opt.phase.textures");
             }
 
+            if (result.CancelIfRequested(cancelled)) result.Findings.Add(new AnalysisFinding("error.cancelled"));
+
             result.Succeeded = result.ErrorCount == 0 && !result.Cancelled;
-            if (result.Succeeded) transaction.Commit();
-            }
             if (!result.Succeeded)
             {
                 result.Generated.Clear();
                 result.PlannedTargetBytesTotal = 0;
-                AssetDatabase.Refresh();
             }
             return result;
         }

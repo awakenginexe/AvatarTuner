@@ -21,6 +21,8 @@ Settings are stored per avatar in the project's `Library`. Creating a Category o
 
 The adaptive planner chooses the smallest candidate that satisfies quality constraints. The memory ratio is an advisory goal and may remain unmet. Standard uses Unity Mitchell resizing and importer compression quality 50. Best Quality uses quality 100 and compares Unity Mitchell and Bilinear; PNG/JPEG candidates can also use Area, Lanczos3 and Mitchell resampling. Unity's native importer performs compression; no external encoder or private maximum-effort BC7 API is used.
 
+Windows candidates include BC1, BC3, BC4, BC5 and BC7 when their channels and color interpretation fit the texture. Changing the scene bindings, source materials/shaders or protection evidence invalidates a reviewed plan. Generated files and recovery records are committed only after scene application and manifest persistence succeed.
+
 HDR, normal maps and ambiguous shapes are preserved when imported candidates cannot be validated safely. BC6H is recognized for memory arithmetic and reporting, not new HDR transforms. ASTC 4x4, 6x6 and 8x8 are Android-only, requiring an active Android build target and decoding support. Existing optimizer protections and exclusions remain in effect.
 
 ## Understanding memory

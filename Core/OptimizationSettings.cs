@@ -31,6 +31,14 @@ namespace AvatarTuner.Core
         public int MaxResolution;
         public OptimizationEffort Effort = OptimizationEffort.Standard;
         public OptimizationPlatform Platform = OptimizationPlatform.Windows;
+        public static TextureSettings ForPreset(OptimizationPreset preset)
+        {
+            return new TextureSettings
+            {
+                MinPsnr = PresetCatalog.GetPolicy(preset).MinEstimatedQualityDb,
+                MinSsim = preset == OptimizationPreset.QualityFirst ? 0.995 : preset == OptimizationPreset.SizeFirst ? 0.96 : 0.98
+            };
+        }
         public TextureSettings Clone()
         {
             return (TextureSettings)MemberwiseClone();

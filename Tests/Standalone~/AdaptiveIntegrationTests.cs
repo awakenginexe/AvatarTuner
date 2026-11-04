@@ -24,6 +24,8 @@ namespace AvatarTuner.StandaloneTests
             Assert.IsTrue(calls > 0, "unchanged-format resizes still need actual quality evidence");
             Assert.AreEqual(SemanticCategory.Hair, plan.Textures[0].Category, "custom is settings source, never category");
             Assert.AreEqual(SettingsSource.Custom, plan.Textures[0].EffectiveSettings.Source, "custom source retained");
+            Assert.IsTrue(plan.Textures[0].Plan.Notes.Exists(note => note.Key == "plan.note.adaptiveAccepted"),
+                "the automatic recommendation explains its evaluated filter, encoder request and metrics");
         }
 
         [Test("adaptive builder protects driven textures before invoking evaluator")]

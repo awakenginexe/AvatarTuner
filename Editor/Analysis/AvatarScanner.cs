@@ -154,6 +154,7 @@ namespace AvatarTuner.Editor.Analysis
                 {
                     mesh = skinned.sharedMesh;
                     entry.BoneCount = skinned.bones != null ? skinned.bones.Length : 0;
+                    entry.RootBoneName = skinned.rootBone == null ? string.Empty : skinned.rootBone.name;
                 }
                 else
                 {
@@ -185,6 +186,7 @@ namespace AvatarTuner.Editor.Analysis
                 var materials = renderer.sharedMaterials;
                 for (var m = 0; m < materials.Length; m++)
                 {
+                    entry.MaterialGuids.Add(string.Empty);
                     var material = materials[m];
                     if (material == null)
                     {
@@ -213,10 +215,7 @@ namespace AvatarTuner.Editor.Analysis
                         continue;
                     }
 
-                    if (!entry.MaterialGuids.Contains(materialGuid))
-                    {
-                        entry.MaterialGuids.Add(materialGuid);
-                    }
+                    entry.MaterialGuids[m] = materialGuid;
 
                     int used;
                     materialUseCount.TryGetValue(materialGuid, out used);
@@ -552,10 +551,11 @@ namespace AvatarTuner.Editor.Analysis
                         {
                             if (!texture.RendererPaths.Contains(path)) texture.RendererPaths.Add(path);
                             string meshName = null;
+                            string boneName = null;
                             var evidencePath = "animated/" + path;
                             foreach (var renderer in report.Renderers)
-                                if (string.Equals(renderer.Path, path, StringComparison.OrdinalIgnoreCase) || renderer.Path.EndsWith("/" + path, StringComparison.OrdinalIgnoreCase)) { meshName = renderer.MeshName; evidencePath = renderer.Path; break; }
-                            evidence.Add(new SemanticEvidence { RendererPath = evidencePath, MaterialName = material.Name, ShaderName = material.ShaderName, PropertyName = binding.Key, MeshName = meshName, IsAnimated = material.UsedInMaterialSwapAnimation });
+                                if (string.Equals(renderer.Path, path, StringComparison.OrdinalIgnoreCase) || renderer.Path.EndsWith("/" + path, StringComparison.OrdinalIgnoreCase)) { meshName = renderer.MeshName; boneName = renderer.RootBoneName; evidencePath = renderer.Path; break; }
+                            evidence.Add(new SemanticEvidence { RendererPath = evidencePath, MaterialName = material.Name, ShaderName = material.ShaderName, PropertyName = binding.Key, MeshName = meshName, BoneName = boneName, IsAnimated = material.UsedInMaterialSwapAnimation });
                         }
                     }
                 }

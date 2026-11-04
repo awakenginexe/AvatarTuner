@@ -118,7 +118,12 @@ namespace AvatarTuner.Editor.UI
             if (controller.Plan != null)
             {
                 var p = controller.Plan;
-                parent.Add(Text(UiStrings.T("workspace.summary", Bytes(p.SourceBytesTotal), Bytes(p.TargetBytesTotal), p.ChangedCount.ToString(CultureInfo.InvariantCulture))));
+                var memory = controller.PlanMemoryNumbers();
+                parent.Add(Text(UiStrings.T("workspace.summary", memory.HasSource ? Bytes(memory.SourceBytes) : T("unknown"),
+                    memory.HasOutput ? Bytes(memory.OutputBytes) : T("unknown"), p.ChangedCount.ToString(CultureInfo.InvariantCulture))));
+                parent.Add(Text(UiStrings.T("workspace.memory.PlannedEstimate")));
+                if (!memory.HasSource || !memory.HasOutput)
+                    parent.Add(Text(UiStrings.T("workspace.memoryUnknown", memory.UnknownSourceCount.ToString(), memory.UnknownOutputCount.ToString())));
             }
         }
         private void Execute(bool apply)
@@ -127,7 +132,10 @@ namespace AvatarTuner.Editor.UI
             {
                 if (!controller.HasEvaluatedPlan || controller.Plan == null || !controller.Plan.HasChanges || !controller.CompatibilityAllows) return;
                 var p = controller.Plan;
-                if (!EditorUtility.DisplayDialog(T("confirmTitle"), UiStrings.T("workspace.confirmBody", Bytes(p.SourceBytesTotal), Bytes(p.TargetBytesTotal), p.ChangedCount.ToString(CultureInfo.InvariantCulture)), T("apply"), T("cancel"))) return;
+                var memory = controller.PlanMemoryNumbers();
+                if (!EditorUtility.DisplayDialog(T("confirmTitle"), UiStrings.T("workspace.confirmBody",
+                    memory.HasSource ? Bytes(memory.SourceBytes) : T("unknown"), memory.HasOutput ? Bytes(memory.OutputBytes) : T("unknown"),
+                    p.ChangedCount.ToString(CultureInfo.InvariantCulture)), T("apply"), T("cancel"))) return;
             }
             cancelled = false;
             DisposePreview();
@@ -144,7 +152,7 @@ namespace AvatarTuner.Editor.UI
             if (changed != null) changed();
             Refresh();
         }
-        private static string Bytes(long value) { return value > 0 ? TextureFormatInfo.FormatBytes(value) : T("unknown"); }
+        private static string Bytes(long value) { return TextureFormatInfo.FormatBytes(value); }
 
         private void BuildSettings(VisualElement parent)
         {

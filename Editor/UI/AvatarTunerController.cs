@@ -38,6 +38,7 @@ namespace AvatarTuner.Editor.UI
         public OptimizationSettings Settings = new OptimizationSettings();
         public bool HasEvaluatedPlan;
         private readonly Dictionary<string, CandidateQuality> _candidateCache = new Dictionary<string, CandidateQuality>();
+        private string _evaluatedRevision;
 
         /// <summary>Replace existing generated files without an extra confirmation.</summary>
         public bool OverwriteGenerated = true;
@@ -113,7 +114,7 @@ namespace AvatarTuner.Editor.UI
             ChangeStatus = null;
             RecordedState = null;
             RootKey = string.Empty;
-            Settings = new OptimizationSettings();
+            Settings = new OptimizationSettings { Global = TextureSettings.ForPreset(Preset) };
             Overrides.Clear();
             HasEvaluatedPlan = false;
             _candidateCache.Clear();
@@ -331,8 +332,9 @@ namespace AvatarTuner.Editor.UI
         public void ApplyPreset(OptimizationPreset preset)
         {
             Preset = preset;
-            Settings.Global.MinPsnr = preset == OptimizationPreset.QualityFirst ? 50 : preset == OptimizationPreset.SizeFirst ? 38 : 45;
-            Settings.Global.MinSsim = preset == OptimizationPreset.QualityFirst ? 0.995 : preset == OptimizationPreset.SizeFirst ? 0.96 : 0.98;
+            var defaults = TextureSettings.ForPreset(preset);
+            Settings.Global.MinPsnr = defaults.MinPsnr;
+            Settings.Global.MinSsim = defaults.MinSsim;
             SaveSettings();
             RebuildPlan();
         }
@@ -343,7 +345,22 @@ namespace AvatarTuner.Editor.UI
             HasEvaluatedPlan = false;
             try
             {
-                using (var evaluator = new CandidateEvaluator(_candidateCache, progress, cancelled))
+                Report = ScanCurrentAvatar();
+                if (Report == null || !Report.ScanSucceeded || !CompatibilityAllows) return false;
+                var revision = CurrentAnalysisRevision(Report);
+                var candidateCount = 0;
+                foreach (var entry in Report.Textures)
+                {
+                    var effective = Settings.Resolve(entry.Guid, entry.Category);
+                    var category = entry.Category;
+                    SemanticCategory corrected;
+                    if (Settings.CategoryCorrections.TryGetValue(entry.Guid, out corrected)) category = corrected;
+                    TextureOverride ovr;
+                    Overrides.TryGetValue(entry.Guid, out ovr);
+                    candidateCount += AdaptivePlanner.Candidates(TexturePlanBuilder.BuildRequest(entry), PresetCatalog.GetPolicy(Preset),
+                        ovr, effective.Settings, category).Count;
+                }
+                using (var evaluator = new CandidateEvaluator(_candidateCache, progress, cancelled, candidateCount))
                     Plan = TexturePlanBuilder.BuildAdaptive(Report, PresetCatalog.GetPolicy(Preset), Overrides, Settings,
                         (entry, candidate) =>
                         {
@@ -362,12 +379,36 @@ namespace AvatarTuner.Editor.UI
                         texture.Plan.Confidence = QualityConfidence.High;
                     }
                 }
+                if (revision != CurrentAnalysisRevision(Report))
+                {
+                    ErrorKey = "workspace.sourceChanged";
+                    return false;
+                }
+                _evaluatedRevision = revision;
+                if (progress != null) progress(1f, "opt.phase.candidates");
+                if (cancelled != null && cancelled()) { ErrorKey = "error.cancelled"; return false; }
                 HasEvaluatedPlan = true;
                 ClearError();
                 return true;
             }
             catch (OperationCanceledException) { ErrorKey = "error.cancelled"; return false; }
             catch (Exception ex) { Fail("error.unexpected", ex.Message); return false; }
+        }
+
+        private AvatarAnalysisReport ScanCurrentAvatar()
+        {
+            return AvatarScanner.Scan(Avatar, new ScanOptions { RecordedState = RecordedState, IncludeInactive = IncludeInactive });
+        }
+
+        private string CurrentAnalysisRevision(AvatarAnalysisReport report)
+        {
+            var slots = new List<ObservedSlot>();
+            SceneTextureApplier.GatherObserved(Avatar, slots, null);
+            return AnalysisRevision.Compute(report, slots, guid =>
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                return string.IsNullOrEmpty(path) ? string.Empty : AssetDatabase.GetAssetDependencyHash(path).ToString();
+            });
         }
 
         public CandidatePreview GetPreview(string guid)
@@ -445,8 +486,15 @@ namespace AvatarTuner.Editor.UI
                 return false;
             }
 
+            if (!OverwriteGenerated && HasRecordedOutputs && !EditorUtility.DisplayDialog(
+                UiStrings.T("dlg.overwrite.title"), UiStrings.T("dlg.overwrite.message", RecordedState.Generated.Count.ToString()),
+                UiStrings.T("dlg.yes"), UiStrings.T("dlg.no"))) return false;
+
             ClearError();
             State = WindowFlow.BeginOptimization();
+            var transaction = new GeneratedFileTransaction(GeneratedAssetStore.GeneratedRoot, "Library/AvatarTuner/Transactions");
+            var committed = false;
+            var undoGroup = -1;
             try
             {
                 if (progress != null)
@@ -454,9 +502,7 @@ namespace AvatarTuner.Editor.UI
                     progress(0.0f, "opt.phase.plan");
                 }
 
-                // Plan safety: the plan that executes is rebuilt from the CURRENT
-                // configuration right here. A stale plan (built with older settings) is
-                // never executed.
+                // Execute only the reviewed plan after rechecking scene and dependency evidence.
                 if (Plan == null || !HasEvaluatedPlan || !CompatibilityAllows)
                 {
                     Fail("error.optimizeFailed", "plan");
@@ -471,6 +517,14 @@ namespace AvatarTuner.Editor.UI
                     return false;
                 }
 
+                if (string.IsNullOrEmpty(_evaluatedRevision) || _evaluatedRevision != CurrentAnalysisRevision(ScanCurrentAvatar()))
+                {
+                    ErrorKey = "workspace.sourceChanged";
+                    HasEvaluatedPlan = false;
+                    State = WindowFlow.AfterOptimization(false);
+                    return false;
+                }
+
                 foreach (var texture in Plan.Textures)
                     if (texture.SourceRevision != CandidateEvaluator.Revision(texture.TexturePath))
                     {
@@ -481,6 +535,10 @@ namespace AvatarTuner.Editor.UI
                     }
 
                 TextureGenerationResult generation;
+                var outputFolder = TextureOptimizer.DefaultOutputFolder(Report);
+                var outputRoot = outputFolder.Substring(0, outputFolder.Length - "/Textures".Length);
+                transaction.CaptureDirectory(outputRoot);
+                transaction.Record(GeneratedAssetStore.ManifestPath);
                 if (!Plan.HasChanges)
                 {
                     // Nothing to generate is still a completed run: it records the avatar
@@ -491,8 +549,7 @@ namespace AvatarTuner.Editor.UI
                 }
                 else
                 {
-                    var outputFolder = TextureOptimizer.DefaultOutputFolder(Report);
-                    generation = TextureOptimizer.Generate(Report, Plan, outputFolder, progress, cancelled);
+                    generation = TextureOptimizer.Generate(Report, Plan, outputFolder, progress, cancelled, transaction);
                 }
 
                 Generation = generation;
@@ -512,18 +569,31 @@ namespace AvatarTuner.Editor.UI
                 SceneApplicationOutcome application = null;
                 if (generation.Succeeded && Avatar != null)
                 {
-                    var outputRoot = generation.OutputFolder ?? string.Empty;
-                    if (outputRoot.EndsWith("/Textures", StringComparison.OrdinalIgnoreCase))
+                    Undo.IncrementCurrentGroup();
+                    undoGroup = Undo.GetCurrentGroup();
+                    if (RecordedState != null && RecordedState.AppliedToAvatar)
                     {
-                        outputRoot = outputRoot.Substring(0, outputRoot.Length - "/Textures".Length);
+                        var previous = AvatarOptimizationState.FromDictionary(RecordedState.ToDictionary());
+                        var restored = SceneTextureApplier.Restore(Avatar, previous, true);
+                        if (!restored.Success || restored.Partial)
+                        {
+                            ErrorKey = "apply.error.applyFailed";
+                            Generation = null;
+                            State = WindowFlow.AfterOptimization(false);
+                            return false;
+                        }
                     }
-
                     application = SceneTextureApplier.Apply(Avatar, Report, generation, outputRoot);
                     ApplicationFindings.Clear();
                     ApplicationFindings.AddRange(application.Findings);
                     if (!string.IsNullOrEmpty(application.ErrorKey))
                     {
                         ErrorKey = application.ErrorKey;
+                        Generation = null;
+                        RunHappened = true;
+                        LastRunSucceeded = false;
+                        State = WindowFlow.AfterOptimization(false);
+                        return false;
                     }
                 }
 
@@ -576,7 +646,16 @@ namespace AvatarTuner.Editor.UI
                 if (!string.IsNullOrEmpty(manifestError))
                 {
                     ErrorKey = manifestError;
+                    Generation = null;
+                    RunHappened = true;
+                    LastRunSucceeded = false;
+                    State = WindowFlow.AfterOptimization(false);
+                    return false;
                 }
+
+                transaction.Commit();
+                committed = true;
+                if (undoGroup >= 0) Undo.CollapseUndoOperations(undoGroup);
 
                 RefreshStatus();
                 var succeeded = generation.Succeeded && string.IsNullOrEmpty(manifestError) &&
@@ -598,6 +677,22 @@ namespace AvatarTuner.Editor.UI
                 Fail("error.unexpected", ex.Message);
                 State = WindowFlow.AfterOptimization(false);
                 return false;
+            }
+            finally
+            {
+                try
+                {
+                    if (!committed && undoGroup >= 0)
+                    {
+                        Undo.FlushUndoRecordObjects();
+                        Undo.RevertAllDownToGroup(undoGroup);
+                    }
+                }
+                finally
+                {
+                    transaction.Dispose();
+                    if (!committed) AssetDatabase.Refresh();
+                }
             }
         }
 

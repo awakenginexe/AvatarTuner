@@ -13,6 +13,7 @@ extracted from the matching section below.
 - Chooses the smallest candidate meeting quality constraints; the memory ratio is a goal and may not be reached. Standard uses Unity Mitchell resizing; Best Quality also compares Unity Bilinear and, for PNG/JPEG, Area, Lanczos3 and Mitchell. Native importer compression quality is 50 or 100 respectively.
 - Reports planned and imported-property-based memory estimates separately; neither is a VRChat measurement. ASTC 4x4, 6x6 and 8x8 are Android-only and require an active Android target and decoding support.
 - Settings persist per avatar in the project Library. Category and Custom overrides copy inherited settings when created; reset returns to inheritance. Quick quality changes preserve Custom overrides.
+- Rechecks scene bindings, materials, shaders and protection evidence before applying a reviewed plan. Failed generation, application or manifest persistence retains the previous recovery state and rolls back generated files; duplicate and empty material slots keep their indices.
 
 ### Migration and limitations
 

@@ -46,5 +46,35 @@ namespace AvatarTuner.StandaloneTests
             }
             finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
         }
+
+        [Test("a read-only prior manifest survives a failed save and backup cleanup")]
+        public static void ReadOnlyRecoveryRecordSurvives()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "AvatarTuner-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            var manifest = Path.Combine(root, "generated", "manifest.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(manifest));
+            File.WriteAllText(manifest, "old recovery state");
+            File.SetAttributes(manifest, FileAttributes.ReadOnly);
+            try
+            {
+                using (var transaction = new GeneratedFileTransaction(Path.GetDirectoryName(manifest), Path.Combine(root, "backup")))
+                    transaction.Record(manifest);
+                Assert.AreEqual("old recovery state", File.ReadAllText(manifest), "read-only state is retained");
+            }
+            finally { File.SetAttributes(manifest, FileAttributes.Normal); Directory.Delete(root, true); }
+        }
+
+        [Test("cancellation requested by a final progress callback prevents a successful result")]
+        public static void ProgressCancellationIsHonored()
+        {
+            var requested = false;
+            var result = new TextureGenerationResult { Succeeded = true };
+            Assert.IsFalse(result.CancelIfRequested(() => requested), "work can continue before cancellation");
+            requested = true;
+            Assert.IsTrue(result.CancelIfRequested(() => requested), "post-progress cancellation is observed");
+            Assert.IsTrue(result.Cancelled, "the run is cancelled");
+            Assert.IsFalse(result.Succeeded, "cancelled work cannot commit as successful");
+        }
     }
 }

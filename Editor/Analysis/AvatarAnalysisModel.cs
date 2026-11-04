@@ -125,6 +125,7 @@ namespace AvatarTuner.Editor.Analysis
 
         public string MeshGuid;
         public string MeshName;
+        public string RootBoneName;
         public int TriangleCount;
         public int VertexCount;
         public int SubMeshCount;

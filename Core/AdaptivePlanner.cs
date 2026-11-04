@@ -230,6 +230,9 @@ namespace AvatarTuner.Core
             plan.HasEstimatedPsnr = true;
             plan.EstimatedPsnrDb = quality.Psnr;
             plan.Confidence = QualityConfidence.Medium;
+            plan.AddNote("plan.note.adaptiveAccepted", best.Filter.ToString(), best.CompressionQuality.ToString(CultureInfo.InvariantCulture),
+                double.IsPositiveInfinity(quality.Psnr) ? "∞" : quality.Psnr.ToString("0.##", CultureInfo.InvariantCulture),
+                quality.Ssim.ToString("0.####", CultureInfo.InvariantCulture));
             return plan;
         }
 

@@ -533,6 +533,8 @@
     "semantic.reason.mesh": "网格：{0}",
     "semantic.reason.property": "纹理属性：{0}",
     "semantic.reason.shader": "Shader：{0}",
-    "semantic.reason.filename": "文件名提示：{0}"
+    "semantic.reason.filename": "文件名提示：{0}",
+    "plan.note.adaptiveAccepted": "满足质量要求且显存占用最小的候选：{0}，导入器质量请求 {1}，PSNR {2} dB，SSIM {3}。",
+    "semantic.reason.bone": "骨骼提示：{0}"
   }
 }

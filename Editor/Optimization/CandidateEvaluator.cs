@@ -30,13 +30,15 @@ namespace AvatarTuner.Editor.Optimization
         private string _baselineSource;
         private byte[] _baseline;
         private int _evaluated;
+        private readonly int _candidateCount;
 
         public CandidateEvaluator(Dictionary<string, CandidateQuality> cache, Action<float, string> progress = null,
-            Func<bool> cancelled = null)
+            Func<bool> cancelled = null, int candidateCount = 0)
         {
             _cache = cache;
             _progress = progress;
             _cancelled = cancelled;
+            _candidateCount = candidateCount;
             _folder = "Assets/AvatarTuner-Generated/Candidates-" + Guid.NewGuid().ToString("N");
         }
 
@@ -67,7 +69,7 @@ namespace AvatarTuner.Editor.Optimization
             try
             {
                 if (entry.IsNormalMap || !SupportedSource(entry.Path)) return quality;
-                if (_progress != null) _progress((float)(++_evaluated % 100) / 100, "opt.phase.candidates");
+                if (_progress != null) _progress(_candidateCount > 0 ? (float)++_evaluated / _candidateCount : 0f, "opt.phase.candidates");
                 CheckCancelled();
                 EnsureBaseline(entry);
                 var path = ImportCandidate(entry.Path, candidate, _folder + "/candidate");

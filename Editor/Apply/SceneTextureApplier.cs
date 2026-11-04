@@ -735,6 +735,11 @@ namespace AvatarTuner.Editor.Apply
         /// </summary>
         public static SceneApplicationOutcome Restore(GameObject avatar, AvatarOptimizationState recorded)
         {
+            return Restore(avatar, recorded, false);
+        }
+
+        internal static SceneApplicationOutcome Restore(GameObject avatar, AvatarOptimizationState recorded, bool onlyIfStillApplied)
+        {
             var outcome = new SceneApplicationOutcome();
             if (avatar == null || recorded == null)
             {
@@ -760,6 +765,17 @@ namespace AvatarTuner.Editor.Apply
                         continue;
                     }
 
+                    var materials = renderer.sharedMaterials;
+                    if (onlyIfStillApplied && binding.SlotIndex >= 0 && binding.SlotIndex < materials.Length)
+                    {
+                        var currentPath = materials[binding.SlotIndex] == null ? string.Empty : AssetDatabase.GetAssetPath(materials[binding.SlotIndex]);
+                        if (!string.Equals(AssetDatabase.AssetPathToGUID(currentPath), binding.AppliedMaterialGuid, StringComparison.OrdinalIgnoreCase))
+                        {
+                            restoredCount++;
+                            continue;
+                        }
+                    }
+
                     var original = AssetDatabase.LoadAssetAtPath<Material>(
                         AssetDatabase.GUIDToAssetPath(binding.OriginalMaterialGuid));
                     if (original == null)
@@ -770,7 +786,6 @@ namespace AvatarTuner.Editor.Apply
                         continue;
                     }
 
-                    var materials = renderer.sharedMaterials;
                     if (binding.SlotIndex < 0 || binding.SlotIndex >= materials.Length)
                     {
                         outcome.Partial = true;
@@ -808,6 +823,12 @@ namespace AvatarTuner.Editor.Apply
                     var animator = FindByHierarchyPath<Animator>(avatar, binding.AnimatorPath);
                     if (animator != null)
                     {
+                        if (onlyIfStillApplied && !string.Equals(AssetDatabase.GetAssetPath(animator.runtimeAnimatorController),
+                            binding.GeneratedControllerPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            restoredCount++;
+                            continue;
+                        }
                         Undo.RecordObject(animator, "AvatarTuner: Restore original controller");
                         animator.runtimeAnimatorController = original;
                         PrefabUtility.RecordPrefabInstancePropertyModifications(animator);
