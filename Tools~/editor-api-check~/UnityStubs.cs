@@ -25,6 +25,7 @@ namespace UnityEngine
 
         // Real Unity: Instantiate is a static on UnityEngine.Object.
         public static T Instantiate<T>(T original) where T : Object { return original; }
+        public static void DestroyImmediate(Object obj, bool allowDestroyingAssets = false) { }
     }
 
     // Real Unity: ScriptableObject lives in UnityEngine and EditorWindow derives from it.
@@ -116,6 +117,14 @@ namespace UnityEngine
         public byte g;
         public byte b;
         public byte a;
+
+        public Color32(byte r, byte g, byte b, byte a)
+        {
+            this.r = r;
+            this.g = g;
+            this.b = b;
+            this.a = a;
+        }
     }
 
     public enum EventType
@@ -199,14 +208,34 @@ namespace UnityEngine
     {
         public int width { get; set; }
         public int height { get; set; }
+        public int mipmapCount { get; }
+        public bool isReadable { get; }
         public Experimental.Rendering.GraphicsFormat graphicsFormat { get; set; }
     }
 
     public class Texture2D : Texture
     {
+        public Texture2D(int width, int height, TextureFormat textureFormat, bool mipChain) { }
+        public Texture2D(int width, int height, TextureFormat textureFormat, bool mipChain, bool linear) { }
         public TextureFormat format { get; set; }
-        public bool isReadable { get; set; }
-        public Color32[] GetPixels32() { return Array.Empty<Color32>(); }
+        public Color32[] GetPixels32(int miplevel) { return Array.Empty<Color32>(); }
+        public Color32[] GetPixels32() { return GetPixels32(0); }
+        public void SetPixels32(Color32[] colors, int miplevel) { }
+        public void SetPixels32(Color32[] colors) { SetPixels32(colors, 0); }
+        public void Apply(bool updateMipmaps, bool makeNoLongerReadable) { }
+        public void Apply(bool updateMipmaps) { Apply(updateMipmaps, false); }
+        public void Apply() { Apply(true, false); }
+    }
+
+    public static class ImageConversion
+    {
+        public static bool LoadImage(Texture2D tex, byte[] data, bool markNonReadable = false) { return false; }
+        public static byte[] EncodeToPNG(Texture2D tex) { return Array.Empty<byte>(); }
+    }
+
+    public static class Mathf
+    {
+        public static float Clamp01(float value) { return value; }
     }
 
     // Real Unity: Transform derives from Component.
@@ -440,6 +469,21 @@ namespace UnityEngine.UIElements
         NoWrap = 1
     }
 
+    public enum FlexDirection
+    {
+        Column = 0,
+        ColumnReverse = 1,
+        Row = 2,
+        RowReverse = 3
+    }
+
+    public enum Wrap
+    {
+        NoWrap = 0,
+        Wrap = 1,
+        WrapReverse = 2
+    }
+
     // Real Unity enums used by IStyle.
     public enum Position
     {
@@ -520,6 +564,9 @@ namespace UnityEngine.UIElements
         public StyleLength paddingRight { get; set; }
         public StyleEnum<Justify> justifyContent { get; set; }
         public StyleEnum<Align> alignItems { get; set; }
+        public StyleEnum<WhiteSpace> whiteSpace { get; set; }
+        public StyleEnum<FlexDirection> flexDirection { get; set; }
+        public StyleEnum<Wrap> flexWrap { get; set; }
     }
 
     public class VisualElement
@@ -595,8 +642,10 @@ namespace UnityEngine.UIElements
 
     public class TextField : TextElement
     {
+        public TextField(string label = null) { this.label = label; }
         public string value { get; set; }
         public string label { get; set; }
+        public bool isDelayed { get; set; }
 
         public void RegisterValueChangedCallback(EventCallback<ChangeEvent<string>> callback)
         {
@@ -626,8 +675,52 @@ namespace UnityEngine.UIElements
         }
     }
 
+    public class PopupField<T> : VisualElement
+    {
+        public PopupField(string label, List<T> choices, int defaultIndex) { }
+        public T value { get; set; }
+
+        public void RegisterValueChangedCallback(EventCallback<ChangeEvent<T>> callback) { }
+    }
+
+    public class FloatField : VisualElement
+    {
+        public FloatField(string label = null) { }
+        public float value { get; set; }
+        public bool isDelayed { get; set; }
+
+        public void RegisterValueChangedCallback(EventCallback<ChangeEvent<float>> callback) { }
+    }
+
+    public class IntegerField : VisualElement
+    {
+        public IntegerField(string label = null) { }
+        public int value { get; set; }
+        public bool isDelayed { get; set; }
+
+        public void RegisterValueChangedCallback(EventCallback<ChangeEvent<int>> callback) { }
+    }
+
+    public class Slider : VisualElement
+    {
+        public Slider(string label, float lowValue, float highValue) { }
+        public float value { get; set; }
+
+        public void RegisterValueChangedCallback(EventCallback<ChangeEvent<float>> callback) { }
+    }
+
+    public enum ScrollViewMode
+    {
+        Vertical = 0,
+        Horizontal = 1,
+        VerticalAndHorizontal = 2,
+        HorizontalAndVertical = 3
+    }
+
     public class ScrollView : VisualElement
     {
+        public ScrollView() { }
+        public ScrollView(ScrollViewMode mode) { }
     }
 
     public class Image : VisualElement
@@ -791,6 +884,7 @@ namespace UnityEditor
         public static void ImportAsset(string path) { }
         public static bool OpenAsset(Object target) { return false; }
         public static void SaveAssets() { }
+        public static void Refresh(ImportAssetOptions options = ImportAssetOptions.Default) { }
         public static Hash128 GetAssetDependencyHash(string path) { return new Hash128(); }
         public static string[] GetDependencies(string pathName, bool recursive) { return Array.Empty<string>(); }
         public static string[] FindAssets(string filter) { return Array.Empty<string>(); }
@@ -806,6 +900,11 @@ namespace UnityEditor
     {
         Default = 0,
         NormalMap = 1
+    }
+
+    public enum ImportAssetOptions
+    {
+        Default = 0
     }
 
     public enum TextureImporterAlphaSource
@@ -837,8 +936,38 @@ namespace UnityEditor
         RFloat = 18,
         RGFloat = 19,
         RGBAFloat = 20,
-        ETC2_RGB = 45,
+        ETC2_RGB4 = 45,
         ETC2_RGBA8 = 47
+    }
+
+    public enum TextureImporterShape
+    {
+        Texture2D = 1,
+        TextureCube = 2,
+        Texture2DArray = 3,
+        Texture3D = 4
+    }
+
+    public enum TextureResizeAlgorithm
+    {
+        Mitchell = 0,
+        Bilinear = 1
+    }
+
+    public enum BuildTarget
+    {
+        NoTarget = 0,
+        StandaloneWindows = 5,
+        Android = 13
+    }
+
+    public static class EditorUserBuildSettings
+    {
+        public static BuildTarget activeBuildTarget { get; set; }
+    }
+
+    public class TextureImporterSettings
+    {
     }
 
     public enum TextureImporterCompression
@@ -851,19 +980,23 @@ namespace UnityEditor
 
     public class TextureImporterPlatformSettings
     {
+        public string name { get; set; }
         public bool overridden { get; set; }
         public TextureImporterFormat format { get; set; }
         public int maxTextureSize { get; set; }
         public TextureImporterCompression textureCompression { get; set; }
         public int compressionQuality { get; set; }
         public bool crunchedCompression { get; set; }
+        public TextureResizeAlgorithm resizeAlgorithm { get; set; }
     }
 
     public class TextureImporter : AssetImporter
     {
         public int maxTextureSize { get; set; }
         public bool mipmapEnabled { get; set; }
+        public bool isReadable { get; set; }
         public TextureImporterType textureType { get; set; }
+        public TextureImporterShape textureShape { get; set; }
         public bool sRGBTexture { get; set; }
         public bool alphaIsTransparency { get; set; }
         public TextureImporterAlphaSource alphaSource { get; set; }
@@ -879,6 +1012,9 @@ namespace UnityEditor
         public bool borderMipmap { get; set; }
 
         public bool DoesSourceTextureHaveAlpha() { return false; }
+
+        public void ReadTextureSettings(TextureImporterSettings dest) { }
+        public void SetTextureSettings(TextureImporterSettings src) { }
 
         // Real signature: returns void, can throw while an import is in flight.
         public void GetSourceTextureWidthAndHeight(out int width, out int height)

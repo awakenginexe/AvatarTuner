@@ -22,7 +22,6 @@ namespace AvatarTuner.Editor.Optimization
     public static class TextureOptimizer
     {
         private const string GeneratedRoot = "Assets/AvatarTuner-Generated";
-        private const string PlatformName = "Standalone";
 
         /// <summary>Default output folder for an avatar: unique per source avatar GUID.</summary>
         public static string DefaultOutputFolder(AvatarAnalysisReport report)
@@ -78,6 +77,11 @@ namespace AvatarTuner.Editor.Optimization
                 return result;
             }
 
+            var allowedRoot = Path.GetFullPath(GeneratedRoot) + Path.DirectorySeparatorChar;
+            if (!Path.GetFullPath(result.OutputFolder).StartsWith(allowedRoot, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Generated output must stay under " + GeneratedRoot);
+            using (var transaction = new GeneratedFileTransaction(GeneratedRoot, "Library/AvatarTuner/Transactions"))
+            {
             for (var i = 0; i < targets.Count; i++)
             {
                 if (cancelled != null && cancelled())
@@ -92,6 +96,7 @@ namespace AvatarTuner.Editor.Optimization
                     progress((float)i / targets.Count, "opt.phase.textures");
                 }
 
+                transaction.Record(BuildTargetPath(result.OutputFolder, targets[i]));
                 GenerateOne(targets[i], result);
             }
 
@@ -101,10 +106,36 @@ namespace AvatarTuner.Editor.Optimization
             }
 
             result.Succeeded = result.ErrorCount == 0 && !result.Cancelled;
+            if (result.Succeeded) transaction.Commit();
+            }
+            if (!result.Succeeded)
+            {
+                result.Generated.Clear();
+                result.PlannedTargetBytesTotal = 0;
+                AssetDatabase.Refresh();
+            }
             return result;
         }
 
         private static void GenerateOne(PlannedTexture planned, TextureGenerationResult result)
+        {
+            try
+            {
+                using (var evaluator = new CandidateEvaluator(null))
+                {
+                    var source = planned.Plan.Candidate == null ? planned.TexturePath
+                        : evaluator.Materialize(planned.TexturePath, planned.Plan.Candidate);
+                    GenerateOneCore(planned, result, source);
+                }
+            }
+            catch (Exception ex)
+            {
+                AddError(result, "error.ioFailed", planned.TexturePath + " (" + ex.Message + ")");
+                result.SkippedCount++;
+            }
+        }
+
+        private static void GenerateOneCore(PlannedTexture planned, TextureGenerationResult result, string generationSource)
         {
             var plan = planned.Plan;
             var sourcePath = planned.TexturePath;
@@ -134,7 +165,7 @@ namespace AvatarTuner.Editor.Optimization
                 // Re-optimization: overwrite file in place so the .meta file and its GUID are preserved!
                 try
                 {
-                    File.Copy(sourcePath, targetPath, overwrite: true);
+                    File.Copy(generationSource, targetPath, overwrite: true);
                     AssetDatabase.ImportAsset(targetPath);
                 }
                 catch (Exception ex)
@@ -146,7 +177,7 @@ namespace AvatarTuner.Editor.Optimization
             }
             else
             {
-                if (!AssetDatabase.CopyAsset(sourcePath, targetPath))
+                if (!AssetDatabase.CopyAsset(generationSource, targetPath))
                 {
                     AddError(result, "error.ioFailed", sourcePath);
                     result.SkippedCount++;
@@ -176,6 +207,7 @@ namespace AvatarTuner.Editor.Optimization
 
             var sourceImporter = AssetImporter.GetAtPath(sourcePath) as TextureImporter;
             ApplySettings(importer, sourceImporter, plan, importerFormat);
+            importer.isReadable = false;
 
             try
             {
@@ -195,6 +227,24 @@ namespace AvatarTuner.Editor.Optimization
             asset.GeneratedGuid = AssetDatabase.AssetPathToGUID(targetPath);
             asset.PlanHashToken = plan.ToHashToken();
             asset.PlannedTargetBytes = plan.TargetBytes;
+            var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(targetPath);
+            if (imported != null)
+            {
+                asset.ImportedWidth = imported.width;
+                asset.ImportedHeight = imported.height;
+                asset.ImportedFormat = imported.format.ToString();
+                asset.ImportedMipCount = imported.mipmapCount;
+                asset.ImportedMipmaps = imported.mipmapCount > 1;
+                long bytes;
+                asset.ImportedBytesKnown = TryImportedBytes(targetPath, out bytes);
+                asset.ImportedBytes = bytes;
+                TunerTextureFormat actual;
+                if (plan.Candidate != null && (!asset.ImportedBytesKnown || bytes > plan.SourceBytes ||
+                    imported.width != plan.TargetWidth || imported.height != plan.TargetHeight ||
+                    !TextureFormatInfo.TryParse(asset.ImportedFormat, out actual) || actual != plan.TargetFormat))
+                    throw new InvalidOperationException("Imported result does not match the reviewed candidate.");
+            }
+            else if (plan.Candidate != null) throw new InvalidOperationException("Imported result unavailable.");
 
             try
             {
@@ -216,7 +266,7 @@ namespace AvatarTuner.Editor.Optimization
             result.PlannedTargetBytesTotal += plan.TargetBytes;
         }
 
-        private static void ApplySettings(
+        internal static void ApplySettings(
             TextureImporter importer,
             TextureImporter sourceImporter,
             TexturePlan plan,
@@ -227,8 +277,13 @@ namespace AvatarTuner.Editor.Optimization
 
             if (sourceImporter != null)
             {
+                var sourceSettings = new TextureImporterSettings();
+                sourceImporter.ReadTextureSettings(sourceSettings);
+                importer.SetTextureSettings(sourceSettings);
+                importer.maxTextureSize = plan.TargetMaxSize;
+                importer.mipmapEnabled = plan.TargetMipMaps;
                 // Texture type: normal maps require NormalMap type
-                if (plan.Usage == TextureUsageKind.NormalMap || plan.TargetFormat == TunerTextureFormat.BC5 ||
+                if (plan.Usage == TextureUsageKind.NormalMap ||
                     sourceImporter.textureType == TextureImporterType.NormalMap)
                 {
                     importer.textureType = TextureImporterType.NormalMap;
@@ -279,7 +334,7 @@ namespace AvatarTuner.Editor.Optimization
             }
             else
             {
-                if (plan.Usage == TextureUsageKind.NormalMap || plan.TargetFormat == TunerTextureFormat.BC5)
+                if (plan.Usage == TextureUsageKind.NormalMap)
                 {
                     importer.textureType = TextureImporterType.NormalMap;
                     importer.sRGBTexture = false;
@@ -290,7 +345,7 @@ namespace AvatarTuner.Editor.Optimization
                 }
             }
 
-            var settings = importer.GetPlatformTextureSettings(PlatformName);
+            var settings = importer.GetPlatformTextureSettings(CandidateEvaluator.PlatformName);
             settings.overridden = true;
             settings.format = format;
             settings.maxTextureSize = plan.TargetMaxSize;
@@ -298,7 +353,24 @@ namespace AvatarTuner.Editor.Optimization
                 ? TextureImporterCompression.Compressed
                 : TextureImporterCompression.Uncompressed;
             settings.crunchedCompression = false;
+            if (plan.Candidate != null)
+            {
+                settings.compressionQuality = plan.Candidate.CompressionQuality;
+                settings.resizeAlgorithm = plan.Candidate.Filter == ResizeFilter.UnityBilinear
+                    ? TextureResizeAlgorithm.Bilinear : TextureResizeAlgorithm.Mitchell;
+                if (TextureFormatInfo.IsBlockCompressed(plan.TargetFormat) && plan.Candidate.CompressionQuality >= 100)
+                    settings.textureCompression = TextureImporterCompression.CompressedHQ;
+            }
             importer.SetPlatformTextureSettings(settings);
+        }
+
+        public static bool TryImportedBytes(string path, out long bytes)
+        {
+            bytes = 0;
+            var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            TunerTextureFormat format;
+            return texture != null && TextureFormatInfo.TryParse(texture.format.ToString(), out format) &&
+                ImportedTextureMemory.TryEstimateBytes(texture.width, texture.height, format, texture.mipmapCount, 1, out bytes);
         }
 
         private static string BuildTargetPath(string outputFolder, PlannedTexture planned)
@@ -308,6 +380,7 @@ namespace AvatarTuner.Editor.Optimization
             {
                 extension = Path.GetExtension(planned.TexturePath);
             }
+            if (CandidateEvaluator.UsesCustomResize(planned.Plan == null ? null : planned.Plan.Candidate)) extension = ".png";
 
             var stem = Sanitize(string.IsNullOrEmpty(planned.TextureName) ? "texture" : planned.TextureName);
             var guidPart = string.IsNullOrEmpty(planned.TextureGuid)

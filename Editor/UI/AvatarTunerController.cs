@@ -11,6 +11,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using AvatarTuner.Core;
 using AvatarTuner.Editor.Analysis;
 using AvatarTuner.Editor.Apply;
@@ -34,6 +35,9 @@ namespace AvatarTuner.Editor.UI
 
         /// <summary>Estimate quality from source pixels where the texture is readable.</summary>
         public bool MeasureQuality;
+        public OptimizationSettings Settings = new OptimizationSettings();
+        public bool HasEvaluatedPlan;
+        private readonly Dictionary<string, CandidateQuality> _candidateCache = new Dictionary<string, CandidateQuality>();
 
         /// <summary>Replace existing generated files without an extra confirmation.</summary>
         public bool OverwriteGenerated = true;
@@ -109,6 +113,10 @@ namespace AvatarTuner.Editor.UI
             ChangeStatus = null;
             RecordedState = null;
             RootKey = string.Empty;
+            Settings = new OptimizationSettings();
+            Overrides.Clear();
+            HasEvaluatedPlan = false;
+            _candidateCache.Clear();
             ResetRunInfo();
             ApplyHealth = ApplicationHealth.NotApplied;
             ApplicationDriftEntries.Clear();
@@ -127,6 +135,7 @@ namespace AvatarTuner.Editor.UI
                 // Computed before any scan: prefabs have an asset GUID, scene objects use
                 // their GlobalObjectId, so previously recorded runs show up immediately.
                 RootKey = ComputeRootKey(avatar, null);
+                LoadSettings();
                 RefreshStatus();
             }
         }
@@ -275,17 +284,13 @@ namespace AvatarTuner.Editor.UI
 
             try
             {
-                var policy = PresetCatalog.GetPolicy(Preset);
-                Plan = TexturePlanBuilder.Build(Report, policy, Overrides, null);
-
-                if (MeasureQuality)
-                {
-                    var evidence = BuildQualityEvidence();
-                    if (evidence.Count > 0)
+                HasEvaluatedPlan = false;
+                Plan = TexturePlanBuilder.BuildAdaptive(Report, PresetCatalog.GetPolicy(Preset), Overrides, Settings,
+                    (entry, candidate) =>
                     {
-                        Plan = TexturePlanBuilder.Build(Report, policy, Overrides, evidence);
-                    }
-                }
+                        CandidateQuality quality;
+                        return _candidateCache.TryGetValue(CandidateEvaluator.CacheKey(entry, candidate), out quality) ? quality : null;
+                    });
             }
             catch (Exception ex)
             {
@@ -311,12 +316,118 @@ namespace AvatarTuner.Editor.UI
             }
 
             RebuildPlan();
+            SaveSettings();
         }
 
         public void ClearOverrides()
         {
             Overrides.Clear();
+            Settings.Textures.Clear();
             RebuildPlan();
+            SaveSettings();
+        }
+
+        public void ApplyPreset(OptimizationPreset preset)
+        {
+            Preset = preset;
+            Settings.Global.MinPsnr = preset == OptimizationPreset.QualityFirst ? 50 : preset == OptimizationPreset.SizeFirst ? 38 : 45;
+            Settings.Global.MinSsim = preset == OptimizationPreset.QualityFirst ? 0.995 : preset == OptimizationPreset.SizeFirst ? 0.96 : 0.98;
+            SaveSettings();
+            RebuildPlan();
+        }
+
+        public bool EvaluateRecommendations(Action<float, string> progress, Func<bool> cancelled)
+        {
+            if (Report == null || !CompatibilityAllows) return false;
+            HasEvaluatedPlan = false;
+            try
+            {
+                using (var evaluator = new CandidateEvaluator(_candidateCache, progress, cancelled))
+                    Plan = TexturePlanBuilder.BuildAdaptive(Report, PresetCatalog.GetPolicy(Preset), Overrides, Settings,
+                        (entry, candidate) =>
+                        {
+                            var mobile = candidate.Format == TunerTextureFormat.ASTC_4x4 || candidate.Format == TunerTextureFormat.ASTC_6x6 || candidate.Format == TunerTextureFormat.ASTC_8x8;
+                            if (mobile != (CandidateEvaluator.PlatformName == "Android")) return null;
+                            return evaluator.Measure(entry, candidate);
+                        });
+                foreach (var texture in Plan.Textures)
+                {
+                    texture.SourceRevision = CandidateEvaluator.Revision(texture.TexturePath);
+                    if (texture.HasChanges && texture.Plan.HasEstimatedPsnr)
+                    {
+                        texture.Plan.HasMeasuredPsnr = true;
+                        texture.Plan.MeasuredPsnrDb = texture.Plan.EstimatedPsnrDb;
+                        texture.Plan.HasEstimatedPsnr = false;
+                        texture.Plan.Confidence = QualityConfidence.High;
+                    }
+                }
+                HasEvaluatedPlan = true;
+                ClearError();
+                return true;
+            }
+            catch (OperationCanceledException) { ErrorKey = "error.cancelled"; return false; }
+            catch (Exception ex) { Fail("error.unexpected", ex.Message); return false; }
+        }
+
+        public CandidatePreview GetPreview(string guid)
+        {
+            var entry = Report == null ? null : Report.FindTexture(guid);
+            if (entry != null && Plan != null && HasEvaluatedPlan)
+                foreach (var texture in Plan.Textures)
+                    if (texture.TextureGuid == guid && texture.SourceRevision == CandidateEvaluator.Revision(entry.Path))
+                        using (var evaluator = new CandidateEvaluator(null)) return evaluator.Preview(entry, texture.Plan);
+            return new CandidatePreview { ErrorKey = "workspace.previewUnavailable" };
+        }
+
+        public List<TunerTextureFormat> AllowedFormats(TextureEntry entry)
+        {
+            var result = new List<TunerTextureFormat> { TunerTextureFormat.Automatic };
+            var effective = Settings.Resolve(entry.Guid, entry.Category).Settings.Clone();
+            effective.Excluded = effective.ProtectQuality = false;
+            effective.Format = TunerTextureFormat.Automatic;
+            foreach (var candidate in AdaptivePlanner.Candidates(TexturePlanBuilder.BuildRequest(entry),
+                PresetCatalog.GetPolicy(Preset), null, effective, entry.Category))
+                if (!result.Contains(candidate.Format)) result.Add(candidate.Format);
+            return result;
+        }
+
+        private string SettingsPath
+        {
+            get { return "Library/AvatarTuner/Settings/" + StableHash.Sha256Hex(RootKey ?? string.Empty) + ".json"; }
+        }
+
+        public void SaveSettings()
+        {
+            if (string.IsNullOrEmpty(RootKey)) return;
+            try
+            {
+                var overrides = new Dictionary<string, object>();
+                foreach (var pair in Overrides) overrides[pair.Key] = pair.Value.ToDictionary();
+                var data = new Dictionary<string, object> { { "schema", 2 }, { "preset", PresetCatalog.GetId(Preset) },
+                    { "settings", Settings.ToDictionary() }, { "overrides", overrides } };
+                Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath));
+                var temporary = SettingsPath + ".tmp";
+                File.WriteAllText(temporary, MiniJson.Serialize(data));
+                if (File.Exists(SettingsPath)) File.Replace(temporary, SettingsPath, null);
+                else File.Move(temporary, SettingsPath);
+            }
+            catch (Exception) { ErrorKey = "workspace.settingsWriteFailed"; }
+        }
+
+        private void LoadSettings()
+        {
+            if (!File.Exists(SettingsPath)) return;
+            try
+            {
+                var data = MiniJson.Parse(File.ReadAllText(SettingsPath)) as Dictionary<string, object>;
+                if (data == null) throw new FormatException();
+                object value;
+                if (data.TryGetValue("settings", out value)) Settings = OptimizationSettings.FromDictionary(value as Dictionary<string, object>);
+                Preset = PresetMemory.ParsePreset(MiniJson.GetString(data, "preset", "balanced"), Preset);
+                if (data.TryGetValue("overrides", out value) && value is Dictionary<string, object> overrides)
+                    foreach (var pair in overrides) Overrides[pair.Key] = TextureOverride.FromDictionary(pair.Value as Dictionary<string, object>);
+            }
+            catch (Exception) { ErrorKey = "workspace.settingsReadFailed"; }
         }
 
         // ===================================================================== optimization
@@ -345,8 +456,7 @@ namespace AvatarTuner.Editor.UI
                 // Plan safety: the plan that executes is rebuilt from the CURRENT
                 // configuration right here. A stale plan (built with older settings) is
                 // never executed.
-                RebuildPlan();
-                if (Plan == null)
+                if (Plan == null || !HasEvaluatedPlan || !CompatibilityAllows)
                 {
                     Fail("error.optimizeFailed", "plan");
                     State = WindowFlow.AfterOptimization(false);
@@ -359,6 +469,15 @@ namespace AvatarTuner.Editor.UI
                     State = WindowFlow.AfterOptimization(false);
                     return false;
                 }
+
+                foreach (var texture in Plan.Textures)
+                    if (texture.SourceRevision != CandidateEvaluator.Revision(texture.TexturePath))
+                    {
+                        ErrorKey = "workspace.sourceChanged";
+                        HasEvaluatedPlan = false;
+                        State = WindowFlow.AfterOptimization(false);
+                        return false;
+                    }
 
                 TextureGenerationResult generation;
                 if (!Plan.HasChanges)
@@ -376,6 +495,15 @@ namespace AvatarTuner.Editor.UI
                 }
 
                 Generation = generation;
+                if (!generation.Succeeded)
+                {
+                    Generation = null;
+                    ErrorKey = generation.Cancelled ? "error.cancelled" : "error.optimizeFailed";
+                    RunHappened = true;
+                    LastRunSucceeded = false;
+                    State = WindowFlow.AfterOptimization(false);
+                    return false;
+                }
 
                 // Direct scene application: the selected scene avatar gets the optimized
                 // material clones assigned (source assets stay read-only). The outcome is
@@ -398,7 +526,7 @@ namespace AvatarTuner.Editor.UI
                     }
                 }
 
-                // Even a cancelled run keeps and records what it already wrote.
+                // Cancelled or failed generation has already rolled back and returned.
                 var configHash = ConfigHash();
                 var sources = ChangeTrackingService.BuildSnapshot(
                     null, Report, configHash, new UnityFingerprintProvider()).Sources;
@@ -411,6 +539,11 @@ namespace AvatarTuner.Editor.UI
                     PresetId = PresetCatalog.GetId(Preset),
                     SourceBytesTotal = numbers.SourceBytes,
                     OutputBytesTotal = numbers.OutputBytes,
+                    HasSource = numbers.HasSource,
+                    HasOutput = numbers.HasOutput,
+                    Basis = numbers.Basis,
+                    UnknownSourceCount = numbers.UnknownSourceCount,
+                    UnknownOutputCount = numbers.UnknownOutputCount,
                     OptimizedCount = numbers.OptimizedCount,
                     SkippedCount = numbers.SkippedCount,
                     ExcludedCount = numbers.ExcludedCount,
@@ -553,47 +686,16 @@ namespace AvatarTuner.Editor.UI
                             RecordedState, observedSlots, ApplicationDriftEntries);
                     }
 
-                    if (Plan != null)
+                    var actualBytes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var guid in observedTextures)
                     {
-                        var sourceBytes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-                        for (var i = 0; i < Plan.Textures.Count; i++)
-                        {
-                            var planned = Plan.Textures[i];
-                            if (planned.Plan != null && !string.IsNullOrEmpty(planned.TextureGuid))
-                            {
-                                sourceBytes[planned.TextureGuid] = planned.Plan.SourceBytes;
-                            }
-                        }
-
-                        var targetBytes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-                        if (Generation != null)
-                        {
-                            for (var i = 0; i < Generation.Generated.Count; i++)
-                            {
-                                var generated = Generation.Generated[i];
-                                if (!string.IsNullOrEmpty(generated.GeneratedGuid))
-                                {
-                                    targetBytes[generated.GeneratedGuid] = generated.PlannedTargetBytes;
-                                }
-                            }
-                        }
-                        else if (RecordedState != null)
-                        {
-                            for (var i = 0; i < RecordedState.Generated.Count; i++)
-                            {
-                                var generated = RecordedState.Generated[i];
-                                if (!string.IsNullOrEmpty(generated.Guid) && generated.TargetBytes > 0)
-                                {
-                                    targetBytes[generated.Guid] = generated.TargetBytes;
-                                }
-                            }
-                        }
-
-                        bool allKnown;
-                        CurrentTextureBytes = ApplicationPlanner.ComputeCurrentBytes(
-                            sourceBytes, targetBytes, observedTextures, out allKnown);
-                        HasCurrentTextureBytes = allKnown;
+                        long bytes;
+                        if (TextureOptimizer.TryImportedBytes(AssetDatabase.GUIDToAssetPath(guid), out bytes)) actualBytes[guid] = bytes;
                     }
+                    bool allKnown;
+                    CurrentTextureBytes = ApplicationPlanner.ComputeCurrentBytes(
+                        actualBytes, new Dictionary<string, long>(), observedTextures, out allKnown);
+                    HasCurrentTextureBytes = allKnown;
                 }
             }
             catch (Exception ex)
@@ -635,8 +737,7 @@ namespace AvatarTuner.Editor.UI
         {
             try
             {
-                return ManifestStateBuilder.ConfigHash(
-                    PresetCatalog.GetPolicy(Preset), Overrides);
+                return TexturePlanBuilder.AdaptiveConfigHash(PresetCatalog.GetPolicy(Preset), Overrides, Settings);
             }
             catch (Exception)
             {
@@ -821,76 +922,5 @@ namespace AvatarTuner.Editor.UI
             return string.Empty;
         }
 
-        /// <summary>
-        /// Quality evidence for the current plan: estimates the cost of the formats the
-        /// plan proposes from really readable source pixels. Textures that cannot be read
-        /// without changing their importer (the overwhelming majority) get no estimate and
-        /// the planner keeps its low-confidence behavior for them - nothing is invented.
-        /// </summary>
-        private Dictionary<string, QualityEvidence> BuildQualityEvidence()
-        {
-            var evidence = new Dictionary<string, QualityEvidence>(StringComparer.OrdinalIgnoreCase);
-            if (Plan == null)
-            {
-                return evidence;
-            }
-
-            for (var i = 0; i < Plan.Textures.Count; i++)
-            {
-                var planned = Plan.Textures[i];
-                if (!planned.HasChanges || planned.Plan.IsExcluded || !planned.Plan.FormatChanged)
-                {
-                    continue;
-                }
-
-                var estimated = EstimateFromSource(planned.TexturePath, planned.Plan);
-                if (estimated != null)
-                {
-                    evidence[planned.TextureGuid] = estimated;
-                }
-            }
-
-            return evidence;
-        }
-
-        private static QualityEvidence EstimateFromSource(string path, TexturePlan plan)
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(path))
-                {
-                    return null;
-                }
-
-                var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-                if (texture == null || !texture.isReadable)
-                {
-                    return null;
-                }
-
-                var pixels = texture.GetPixels32();
-                if (pixels == null || pixels.Length == 0)
-                {
-                    return null;
-                }
-
-                var rgba = new byte[pixels.Length * 4];
-                for (var i = 0; i < pixels.Length; i++)
-                {
-                    rgba[i * 4] = pixels[i].r;
-                    rgba[i * 4 + 1] = pixels[i].g;
-                    rgba[i * 4 + 2] = pixels[i].b;
-                    rgba[i * 4 + 3] = pixels[i].a;
-                }
-
-                return QualityEstimator.Estimate(
-                    rgba, texture.width, texture.height, plan.TargetFormat, plan.FormatChanged);
-            }
-            catch (Exception)
-            {
-                // Evidence is optional by design; a failure here must not fail the plan.
-                return null;
-            }
-        }
     }
 }

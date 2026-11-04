@@ -72,7 +72,6 @@ namespace AvatarTuner.Editor.UI
         private bool _dialogOpen;
 
         /// <summary>Advanced foldout state inside the dialog.</summary>
-        private bool _dialogAdvanced;
 
         private string _selectionMessageKey;
         private bool _selectionMessageIsError;
@@ -447,7 +446,7 @@ namespace AvatarTuner.Editor.UI
 
             var state = _controller.State;
             var hasPlan = _controller.Plan != null;
-            var planHasChanges = _controller.Plan != null && _controller.Plan.HasChanges;
+            var planHasChanges = hasPlan;
 
             // "Has results" for the workflow means a run finished in THIS session; the
             // recorded manifest state must not hide the regenerate path for a previously
@@ -1099,25 +1098,18 @@ namespace AvatarTuner.Editor.UI
             var holder = new VisualElement();
             holder.Add(row);
 
-            holder.Add(Message(UiStrings.T("results.basisComputed"), UiTheme.Neutral));
-            if (numbers.HasOutput)
-            {
-                holder.Add(Message(
-                    UiStrings.T(numbers.OutputFromGeneratedOutputs
-                        ? "results.basisComputedOutput"
-                        : "results.basisEstimate"),
-                    UiTheme.Neutral));
-            }
-
-            // Generated outputs are standalone files: never claim the scene avatar uses
-            // them, and never present a computed number as a measured active-avatar one.
-            if (numbers.OutputFromGeneratedOutputs)
-            {
-                holder.Add(Message(UiStrings.T("results.outputsStandalone",
-                    GeneratedAssetStore.GeneratedRoot), UiTheme.Info));
-            }
+            AddMemoryBasis(holder, numbers);
 
             return holder;
+        }
+
+        private static void AddMemoryBasis(VisualElement parent, MemoryNumbers numbers)
+        {
+            parent.Add(Message(UiStrings.T("workspace.memory." + numbers.Basis), UiTheme.Neutral));
+            if (numbers.UnknownSourceCount > 0 || numbers.UnknownOutputCount > 0)
+                parent.Add(Message(UiStrings.T("workspace.memoryUnknown",
+                    numbers.UnknownSourceCount.ToString(CultureInfo.InvariantCulture),
+                    numbers.UnknownOutputCount.ToString(CultureInfo.InvariantCulture)), UiTheme.Neutral));
         }
 
         private VisualElement Metric(MetricCard metric)
@@ -1203,7 +1195,7 @@ namespace AvatarTuner.Editor.UI
                 trio.SavingText + " (" + trio.SavingPercentText + ")", UiTheme.Info));
             card.Add(savings);
 
-            card.Add(Message(UiStrings.T("results.basisEstimate"), UiTheme.Neutral));
+            AddMemoryBasis(card, numbers);
             if (_controller.Generation != null)
             {
                 card.Add(Message(UiStrings.T("results.planExecutedNote",
@@ -1805,12 +1797,7 @@ namespace AvatarTuner.Editor.UI
                 numbers.SavingBytes > 0 ? UiTheme.Success : UiTheme.TextSecondary));
             card.Add(row);
 
-            card.Add(Message(UiStrings.T("results.basisComputed"), UiTheme.Neutral));
-            card.Add(Message(UiStrings.T(numbers.OutputFromGeneratedOutputs
-                ? "results.basisComputedOutput"
-                : "results.basisEstimate"), UiTheme.Neutral));
-            card.Add(Message(UiStrings.T("results.outputsStandalone",
-                GeneratedAssetStore.GeneratedRoot), UiTheme.Info));
+            AddMemoryBasis(card, numbers);
             card.Add(Message(UiStrings.T("results.disclaimer"), UiTheme.Neutral));
 
             // ---- counts of the same run
@@ -2099,11 +2086,23 @@ namespace AvatarTuner.Editor.UI
         /// preset is chosen, the planned changes are reviewed, and only the explicit
         /// Confirm button generates output. Cancel closes the dialog and touches nothing.
         /// </summary>
+        private bool EvaluateRecommendations()
+        {
+            _cancelRequested = false;
+            try
+            {
+                return _controller.EvaluateRecommendations(OnOptimizationProgress, () => _cancelRequested);
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+            }
+        }
+
         private void OpenOptimizeDialog()
         {
-            _dialogOpen = true;
-            _dialogAdvanced = false;
             ClearNotice();
+            if (EvaluateRecommendations()) _dialogOpen = true;
             RefreshView();
         }
 
@@ -2188,7 +2187,7 @@ namespace AvatarTuner.Editor.UI
             scroll.AddToClassList("at-grow");
             scroll.style.flexShrink = 1;
 
-            var title = new Label(UiStrings.T("dlg.configure.title"));
+            var title = new Label(UiStrings.T("workspace.quick"));
             title.AddToClassList("at-card-title");
             scroll.Add(title);
 
@@ -2208,7 +2207,9 @@ namespace AvatarTuner.Editor.UI
                 scroll.Add(Line(UiStrings.T("ui.hint.analyzeFirst")));
             }
 
-            scroll.Add(BuildDialogAdvanced());
+            var preferences = new Foldout { text = UiStrings.T("ui.section.preferences") };
+            preferences.Add(BuildPreferencesCard());
+            scroll.Add(preferences);
 
             dialog.Add(scroll);
             dialog.Add(BuildDialogButtons());
@@ -2228,9 +2229,9 @@ namespace AvatarTuner.Editor.UI
                 var selected = _controller.Preset == preset;
                 var presetCard = new Button(() =>
                 {
-                    _controller.Preset = captured;
+                    _controller.ApplyPreset(captured);
                     PresetMemory.Save(SessionState.SetString, captured);
-                    _controller.RebuildPlan();
+                    EvaluateRecommendations();
                     RefreshView();
                 });
                 presetCard.AddToClassList("at-card");
@@ -2266,159 +2267,6 @@ namespace AvatarTuner.Editor.UI
         }
 
         /// <summary>
-        /// The collapsible advanced settings: analysis preferences, the preset's quality
-        /// threshold, and the per-texture overrides (exclusion, keep resolution/format,
-        /// forced max size and format) - all through the existing configuration model.
-        /// </summary>
-        private VisualElement BuildDialogAdvanced()
-        {
-            var advanced = new Foldout();
-            advanced.text = UiStrings.T("ui.section.advanced");
-            advanced.value = _dialogAdvanced;
-            advanced.AddToClassList("at-details");
-            advanced.RegisterValueChangedCallback(evt => _dialogAdvanced = evt.newValue);
-
-            var policy = PresetCatalog.GetPolicy(_controller.Preset);
-            advanced.Add(DetailRow("ui.label.qualityThreshold",
-                policy.MinEstimatedQualityDb.ToString("0.#", CultureInfo.InvariantCulture) + " dB"));
-
-            advanced.Add(BuildPreferencesCard());
-
-            var buttons = new VisualElement();
-            buttons.AddToClassList("at-row");
-            buttons.Add(SecondaryButton("ui.button.revertOverrides",
-                () => { _controller.ClearOverrides(); RefreshView(); }));
-            buttons.Add(SecondaryButton("ui.button.clearExclusions",
-                () => { ClearExclusions(); RefreshView(); }));
-            buttons.Add(SecondaryButton("ui.button.selectAll",
-                () => { SetAllIncluded(true); RefreshView(); }));
-            buttons.Add(SecondaryButton("ui.button.selectNone",
-                () => { SetAllIncluded(false); RefreshView(); }));
-            advanced.Add(buttons);
-            advanced.Add(Message(UiStrings.T("tip.exclusionList"), UiTheme.Neutral));
-
-            if (_controller.Plan == null)
-            {
-                advanced.Add(Line(UiStrings.T("ui.hint.analyzeFirst")));
-                return advanced;
-            }
-
-            var shown = 0;
-            for (var i = 0; i < _controller.Plan.Textures.Count; i++)
-            {
-                var planned = _controller.Plan.Textures[i];
-                if (shown >= 100)
-                {
-                    advanced.Add(Line(UiStrings.T("ui.label.moreItems",
-                        (_controller.Plan.Textures.Count - shown).ToString(CultureInfo.InvariantCulture))));
-                    break;
-                }
-
-                var row = new VisualElement();
-                row.AddToClassList("at-row");
-                row.Add(Cell("at-col-name", planned.TextureName ?? planned.TextureGuid, UiTheme.Text));
-                row.Add(OverrideToggle(planned, "ui.label.include",
-                    !(planned.Override != null && planned.Override.Excluded), value =>
-                    {
-                        var ovr = CloneOverride(planned.Override);
-                        ovr.Excluded = !value;
-                        _controller.SetOverride(planned.TextureGuid, ovr);
-                    }));
-                row.Add(OverrideToggle(planned, "ui.label.resolution",
-                    planned.Override != null && planned.Override.KeepResolution, value =>
-                    {
-                        var ovr = CloneOverride(planned.Override);
-                        ovr.KeepResolution = value;
-                        _controller.SetOverride(planned.TextureGuid, ovr);
-                    }));
-                row.Add(OverrideToggle(planned, "ui.label.format",
-                    planned.Override != null && planned.Override.KeepFormat, value =>
-                    {
-                        var ovr = CloneOverride(planned.Override);
-                        ovr.KeepFormat = value;
-                        _controller.SetOverride(planned.TextureGuid, ovr);
-                    }));
-                row.Add(MaxSizeDropdown(planned));
-                row.Add(FormatDropdown(planned));
-
-                advanced.Add(row);
-                shown++;
-            }
-
-            return advanced;
-        }
-
-        private static TextureOverride CloneOverride(TextureOverride source)
-        {
-            return source == null
-                ? new TextureOverride()
-                : TextureOverride.FromDictionary(source.ToDictionary());
-        }
-
-        /// <summary>Per-texture resolution cap (forced max size), "-" = follow the preset.</summary>
-        private VisualElement MaxSizeDropdown(PlannedTexture planned)
-        {
-            var dropdown = new DropdownField();
-            dropdown.label = UiStrings.T("ui.label.forceMaxSize");
-            dropdown.choices = new List<string> { "—", "4096", "2048", "1024", "512", "256", "128" };
-            dropdown.AddToClassList("at-col-w110");
-
-            var ovr = planned.Override;
-            dropdown.value = ovr != null && ovr.ForceMaxSize
-                ? ovr.ForcedMaxSize.ToString(CultureInfo.InvariantCulture)
-                : "—";
-
-            dropdown.SetEnabled(!planned.ProtectedByThirdParty);
-            dropdown.RegisterValueChangedCallback(evt =>
-            {
-                var next = CloneOverride(planned.Override);
-                int maxSize;
-                next.ForceMaxSize = int.TryParse(evt.newValue, out maxSize);
-                if (next.ForceMaxSize)
-                {
-                    next.ForcedMaxSize = maxSize;
-                }
-
-                _controller.SetOverride(planned.TextureGuid, next);
-            });
-            return dropdown;
-        }
-
-        /// <summary>Per-texture compression preference (forced format), "-" = follow the preset.</summary>
-        private VisualElement FormatDropdown(PlannedTexture planned)
-        {
-            var dropdown = new DropdownField();
-            dropdown.label = UiStrings.T("ui.label.forceFormat");
-            dropdown.choices = new List<string> { "—" };
-            foreach (TunerTextureFormat format in Enum.GetValues(typeof(TunerTextureFormat)))
-            {
-                dropdown.choices.Add(format.ToString());
-            }
-
-            dropdown.AddToClassList("at-col-w110");
-
-            var ovr = planned.Override;
-            dropdown.value = ovr != null && ovr.ForceFormat
-                ? ovr.ForcedFormat.ToString()
-                : "—";
-
-            dropdown.SetEnabled(!planned.ProtectedByThirdParty);
-            dropdown.RegisterValueChangedCallback(evt =>
-            {
-                var next = CloneOverride(planned.Override);
-                TunerTextureFormat format;
-                next.ForceFormat = Enum.TryParse(evt.newValue, true, out format);
-                if (next.ForceFormat)
-                {
-                    next.ForcedFormat = format;
-                }
-
-                _controller.SetOverride(planned.TextureGuid, next);
-            });
-            return dropdown;
-        }
-
-        /// <summary>
         /// The dialog's action row. Cancel closes without doing anything; Confirm is the
         /// explicit confirmation and is gated on a fresh plan with real changes that the
         /// compatibility verdict allows. Re-optimizing an already optimized avatar goes
@@ -2430,7 +2278,7 @@ namespace AvatarTuner.Editor.UI
             row.AddToClassList("at-row");
             row.style.marginTop = 8;
 
-            var planFresh = _controller.IsPlanFresh();
+            var planFresh = _controller.HasEvaluatedPlan && _controller.IsPlanFresh();
             var reasonKey = OptimizationDialogModel.ConfirmDisabledReasonKey(
                 WindowFlow.IsBusy(_controller.State),
                 _controller.Plan != null,
@@ -2455,6 +2303,14 @@ namespace AvatarTuner.Editor.UI
             cancel.style.color = UiTheme.Text;
             row.Add(cancel);
 
+            var advanced = new Button(() =>
+            {
+                _dialogOpen = false;
+                RefreshView();
+                OptimizationWorkspace.Open(_controller, RefreshView);
+            }) { text = UiStrings.T("workspace.open") };
+            advanced.AddToClassList("at-btn");
+            row.Add(advanced);
             row.Add(Spacer());
 
             var confirm = new Button(ConfirmOptimize) { text = UiStrings.T("ui.button.confirmOptimize") };
@@ -2480,22 +2336,6 @@ namespace AvatarTuner.Editor.UI
             RunOptimize();
         }
 
-        private VisualElement OverrideToggle(
-            PlannedTexture planned, string labelKey, bool value, Action<bool> onChanged)
-        {
-            var toggle = new Toggle(UiStrings.T(labelKey));
-            toggle.value = value;
-            toggle.SetEnabled(!planned.ProtectedByThirdParty);
-            if (planned.ProtectedByThirdParty)
-            {
-                toggle.tooltip = UiStrings.T("plan.note.protectedThirdParty");
-            }
-
-            toggle.AddToClassList("at-col-w95");
-            toggle.RegisterValueChangedCallback(evt => onChanged(evt.newValue));
-            return toggle;
-        }
-
         private VisualElement BuildPreferencesCard()
         {
             var card = Card("ui.section.preferences");
@@ -2509,15 +2349,11 @@ namespace AvatarTuner.Editor.UI
                 if (_controller.Report != null)
                 {
                     RunAnalyze();
+                    EvaluateRecommendations();
+                    RefreshView();
                 }
             });
             card.Add(includeInactive);
-
-            var measureQuality = new Toggle(UiStrings.T("ui.toggle.measureQuality"));
-            measureQuality.value = _controller.MeasureQuality;
-            measureQuality.tooltip = UiStrings.T("tip.measureQuality");
-            measureQuality.RegisterValueChangedCallback(evt => _controller.MeasureQuality = evt.newValue);
-            card.Add(measureQuality);
 
             var overwrite = new Toggle(UiStrings.T("ui.toggle.overwriteGenerated"));
             overwrite.value = _controller.OverwriteGenerated;
@@ -2526,7 +2362,6 @@ namespace AvatarTuner.Editor.UI
             card.Add(overwrite);
 
             card.Add(Message(UiStrings.T("tip.qualityEstimate"), UiTheme.Neutral));
-            card.Add(Message(UiStrings.T("tip.qualityMeasure"), UiTheme.Neutral));
             card.Add(DetailRow("ui.label.outputFolder", GeneratedAssetStore.GeneratedRoot));
 
             var advanced = new Foldout();
@@ -2808,44 +2643,8 @@ namespace AvatarTuner.Editor.UI
             _noticeArgs.Clear();
         }
 
-        private void ClearExclusions()
-        {
-            var guids = new List<string>(_controller.Overrides.Keys);
-            for (var i = 0; i < guids.Count; i++)
-            {
-                var ovr = _controller.Overrides[guids[i]];
-                ovr.Excluded = false;
-                _controller.SetOverride(guids[i], ovr);
-            }
-        }
 
-        private void SetAllIncluded(bool included)
-        {
-            if (_controller.Report == null)
-            {
-                return;
-            }
 
-            for (var i = 0; i < _controller.Report.Textures.Count; i++)
-            {
-                var guid = _controller.Report.Textures[i].Guid;
-                if (string.IsNullOrEmpty(guid))
-                {
-                    continue;
-                }
-
-                TextureOverride ovr;
-                if (!_controller.Overrides.TryGetValue(guid, out ovr))
-                {
-                    ovr = new TextureOverride();
-                }
-
-                ovr.Excluded = !included;
-                _controller.SetOverride(guid, ovr);
-            }
-        }
-
-        /// <summary>Locates a hierarchy path or asset path and highlights it in the editor.</summary>
         private void PingPath(string path)
         {
             if (string.IsNullOrEmpty(path))
@@ -3059,14 +2858,12 @@ namespace AvatarTuner.Editor.UI
                     return;
                 }
 
-                TextureOverride ovr;
-                if (!_controller.Overrides.TryGetValue(guid, out ovr))
-                {
-                    ovr = new TextureOverride();
-                }
-
-                ovr.Excluded = !evt.newValue;
-                _controller.SetOverride(guid, ovr);
+                var entry = _controller.Report.FindTexture(guid);
+                var settings = _controller.Settings.Resolve(guid, entry.Category).Settings.Clone();
+                settings.Excluded = !evt.newValue;
+                _controller.Settings.Textures[guid] = settings;
+                _controller.SaveSettings();
+                _controller.RebuildPlan();
                 RefreshView();
             });
             holder.Add(toggle);

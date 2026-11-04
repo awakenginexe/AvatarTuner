@@ -42,6 +42,7 @@
     <Compile Include="..\..\Editor\Optimization\TextureFormatMapping.cs" />
     <Compile Include="..\..\Editor\Optimization\TexturePlanBuilder.cs" />
     <Compile Include="..\..\Editor\Optimization\TextureGenerationModels.cs" />
+    <Compile Include="..\..\Editor\Optimization\GeneratedFileTransaction.cs" />
     <Compile Include="..\..\Editor\Tracking\CleanupPlanner.cs" />
     <Compile Include="..\..\Editor\Tracking\ManifestStateBuilder.cs" />
     <Compile Include="..\..\Editor\UI\WindowFlow.cs" />

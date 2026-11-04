@@ -207,8 +207,7 @@ namespace AvatarTuner.StandaloneTests
 
             Assert.IsFalse(source.Contains("AssetDatabase.DeleteAsset(outputPath)"),
                 "TextureOptimizer must not call DeleteAsset on target output (deleting the .meta file destroys GUID)");
-            Assert.IsTrue(source.Contains("File.Copy(sourcePath, targetPath, overwrite: true)") ||
-                          source.Contains("File.Copy(sourcePath, targetPath, true)"),
+            Assert.IsTrue(source.Contains("File.Copy(generationSource, targetPath, overwrite: true)"),
                 "TextureOptimizer must use File.Copy with overwrite: true to preserve the .meta file");
         }
 
