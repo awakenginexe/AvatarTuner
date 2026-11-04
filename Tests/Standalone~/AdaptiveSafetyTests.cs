@@ -50,6 +50,17 @@ namespace AvatarTuner.StandaloneTests
             }
         }
         static TexturePolicy Policy() { return PresetCatalog.GetPolicy(OptimizationPreset.Balanced); }
+
+        [Test("packed data rejects isolated channel damage even when aggregate metrics pass")]
+        public static void PackedDataBoundsEachChannel()
+        {
+            var request = Request();
+            request.Usage = TextureUsageKind.DataMask;
+            request.CurrentSRGB = false;
+            var plan = AdaptivePlanner.Select(request, Policy(), null, new TextureSettings(), SemanticCategory.Masks,
+                c => new CandidateQuality { Available = true, Psnr = 100, Ssim = 1, MaxChannelError = 0.1 });
+            Assert.IsTrue(plan.IsNoOp, "small isolated data features cannot be hidden by PSNR/SSIM averages");
+        }
         static TexturePlanRequest Request() { return new TexturePlanRequest { SourceWidth = 1024, SourceHeight = 512, CurrentFormat = TunerTextureFormat.RGBA32, CurrentFormatKnown = true, Usage = TextureUsageKind.AlbedoOpaque }; }
     }
 }

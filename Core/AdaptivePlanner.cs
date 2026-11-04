@@ -198,6 +198,8 @@ namespace AvatarTuner.Core
                     !Between(q.EdgeError, 0, 1) || !Between(q.MeanColorError, 0, 1) ||
                     !Between(q.MaxChannelError, 0, 1) || !Between(q.NormalAngularError, 0, 180))) continue;
                 if (q == null || !q.Available || double.IsNaN(q.Psnr) || double.IsNaN(q.Ssim) || double.IsNaN(q.AlphaCoverageError) || double.IsNaN(q.EdgeError) || double.IsNaN(q.MeanColorError) || double.IsNaN(q.MaxChannelError) || double.IsNaN(q.NormalAngularError) || q.Psnr < s.MinPsnr || q.Ssim < s.MinSsim || q.AlphaCoverageError > 0.02 || q.EdgeError > 0.03 || q.MeanColorError > 0.03 || q.MaxChannelError > 0.25 || q.NormalAngularError > 5) continue;
+                if ((category == SemanticCategory.Masks || r.Usage == TextureUsageKind.DataMask || r.Usage == TextureUsageKind.GreyscaleData) &&
+                    q.MaxChannelError > 0.03) continue;
                 double minPsnr = category == SemanticCategory.Face || category == SemanticCategory.Eyes ? 50 :
                     category == SemanticCategory.Hair || category == SemanticCategory.Masks ? 48 : s.MinPsnr;
                 double minSsim = category == SemanticCategory.Face || category == SemanticCategory.Eyes ? 0.99 :
