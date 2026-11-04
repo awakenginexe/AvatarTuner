@@ -131,6 +131,7 @@ namespace AvatarTuner.Core
                     int w = Math.Max(1, (int)Math.Round((double)r.SourceWidth * size / max)), h = Math.Max(1, (int)Math.Round((double)r.SourceHeight * size / max));
                     foreach (var f in formats)
                     {
+                        if (r.CurrentSRGB && (f == TunerTextureFormat.BC4 || f == TunerTextureFormat.BC5)) continue;
                         if (settings.Platform == OptimizationPlatform.Android && f == r.CurrentFormat && f != TunerTextureFormat.ASTC_4x4 && f != TunerTextureFormat.ASTC_6x6 && f != TunerTextureFormat.ASTC_8x8) continue;
                         var filters = settings.Effort == OptimizationEffort.BestQuality
                             ? new[] { ResizeFilter.UnityMitchell, ResizeFilter.UnityBilinear, ResizeFilter.Area, ResizeFilter.Lanczos3, ResizeFilter.Mitchell }

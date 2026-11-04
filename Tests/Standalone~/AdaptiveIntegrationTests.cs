@@ -76,5 +76,17 @@ namespace AvatarTuner.StandaloneTests
                 c => new CandidateQuality { Available = true, Psnr = 100, Ssim = double.PositiveInfinity }).IsNoOp,
                 "impossible SSIM is unavailable evidence");
         }
+
+        [Test("data compression never changes an sRGB importer's numerical interpretation")]
+        public static void LinearFormatsDoNotChangeSrgbData()
+        {
+            var request = new TexturePlanRequest { SourceWidth = 1024, SourceHeight = 1024,
+                CurrentFormat = TunerTextureFormat.R8, CurrentFormatKnown = true, CurrentSRGB = true,
+                Usage = TextureUsageKind.DataMask };
+            foreach (var candidate in AdaptivePlanner.Candidates(request, PresetCatalog.GetPolicy(OptimizationPreset.Balanced),
+                null, new TextureSettings(), SemanticCategory.Masks))
+                Assert.IsFalse(candidate.Format == TunerTextureFormat.BC4 || candidate.Format == TunerTextureFormat.BC5,
+                    "linear-only formats cannot silently disable sRGB");
+        }
     }
 }
