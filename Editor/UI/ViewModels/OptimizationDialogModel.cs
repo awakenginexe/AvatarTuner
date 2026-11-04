@@ -1,11 +1,7 @@
 // AvatarTuner v1.0.0 — optimization dialog rules (Unity free).
 //
-// The Optimize button no longer optimizes: it opens a configuration dialog where the
-// preset is chosen, the planned changes are reviewed and only then explicitly confirmed.
-// The rules behind that dialog live here so they can be unit tested:
-//   - preset selection round-trips through persistence and survives invalid data;
-//   - a plan built with an older configuration is stale and can never be confirmed;
-//   - Cancel closes the dialog and performs nothing.
+// Opening configuration stays passive. Confirmation evaluates and generates in one action;
+// generation still requires the freshly evaluated plan to match current inputs.
 
 using System;
 using AvatarTuner.Core;
@@ -78,9 +74,7 @@ namespace AvatarTuner.Editor.ViewModels
         /// </summary>
         public static string ConfirmDisabledReasonKey(
             bool busy,
-            bool hasPlan,
-            bool planHasChanges,
-            bool planFresh,
+            bool hasAnalysis,
             bool compatibilityAllows)
         {
             if (busy)
@@ -88,24 +82,14 @@ namespace AvatarTuner.Editor.ViewModels
                 return "ui.hint.busy";
             }
 
-            if (!hasPlan)
+            if (!hasAnalysis)
             {
                 return "ui.hint.analyzeFirst";
-            }
-
-            if (!planFresh)
-            {
-                return "ui.hint.planStale";
             }
 
             if (!compatibilityAllows)
             {
                 return "ui.hint.blocked";
-            }
-
-            if (!planHasChanges)
-            {
-                return "ui.hint.noChanges";
             }
 
             return null;

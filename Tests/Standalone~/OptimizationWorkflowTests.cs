@@ -63,29 +63,23 @@ namespace AvatarTuner.StandaloneTests
             Assert.IsFalse(OptimizationDialogModel.IsPlanFresh("old", "new"), "a config change stales the plan");
             Assert.IsTrue(OptimizationDialogModel.IsPlanFresh("abc", "abc"), "the current plan is fresh");
 
-            Assert.AreEqual("ui.hint.planStale",
-                OptimizationDialogModel.ConfirmDisabledReasonKey(false, true, true, false, true),
-                "confirming a stale plan explains why it is refused");
         }
 
-        [Test("confirming the optimization requires a fresh, changing, allowed plan")]
+        [Test("confirming starts from analysis without requiring a separate evaluation")]
         public static void ConfirmGateExplainsItself()
         {
             Assert.AreEqual("ui.hint.busy",
-                OptimizationDialogModel.ConfirmDisabledReasonKey(true, true, true, true, true),
+                OptimizationDialogModel.ConfirmDisabledReasonKey(true, true, true),
                 "busy wins");
             Assert.AreEqual("ui.hint.analyzeFirst",
-                OptimizationDialogModel.ConfirmDisabledReasonKey(false, false, false, true, true),
+                OptimizationDialogModel.ConfirmDisabledReasonKey(false, false, true),
                 "no plan is next");
             Assert.AreEqual("ui.hint.blocked",
-                OptimizationDialogModel.ConfirmDisabledReasonKey(false, true, true, true, false),
+                OptimizationDialogModel.ConfirmDisabledReasonKey(false, true, false),
                 "compatibility blockers are named");
-            Assert.AreEqual("ui.hint.noChanges",
-                OptimizationDialogModel.ConfirmDisabledReasonKey(false, true, false, true, true),
-                "nothing to do is named");
             Assert.IsNull(
-                OptimizationDialogModel.ConfirmDisabledReasonKey(false, true, true, true, true),
-                "a fresh plan with changes can be confirmed");
+                OptimizationDialogModel.ConfirmDisabledReasonKey(false, true, true),
+                "analyzed avatars can confirm before candidate evaluation");
         }
 
         [Test("changing preset or overrides regenerates the plan token")]

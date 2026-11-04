@@ -17,6 +17,28 @@ namespace AvatarTuner.StandaloneTests
     /// </summary>
     public static class EditorApiHygieneTests
     {
+        [Test("one confirmation evaluates before generating and both modes use it")]
+        public static void ConfirmationRunsBothStages()
+        {
+            var ui = Path.Combine(PackageLayout.Root, "Editor", "UI");
+            var controller = File.ReadAllText(Path.Combine(ui, "AvatarTunerController.cs"));
+            var start = controller.IndexOf("public bool ConfirmAndOptimize(", StringComparison.Ordinal);
+            Assert.IsTrue(start >= 0, "one confirmed controller operation owns evaluation and generation");
+            var end = controller.IndexOf("public bool RunOptimization(", start, StringComparison.Ordinal);
+            var body = controller.Substring(start, end - start);
+            var evaluate = body.IndexOf("if (!EvaluateRecommendations(", StringComparison.Ordinal);
+            var generate = body.IndexOf("return RunOptimization(", StringComparison.Ordinal);
+            Assert.IsTrue(evaluate >= 0 && generate > evaluate, "failed or cancelled evaluation prevents generation");
+            Assert.Contains("!Plan.HasChanges", body, "no-change evaluations do not generate empty output");
+            Assert.Contains("_controller.ConfirmAndOptimize(", File.ReadAllText(Path.Combine(ui, "AvatarTunerWindow.cs")), "Standard uses the combined action");
+            var advanced = File.ReadAllText(Path.Combine(ui, "OptimizationWorkspace.cs"));
+            Assert.Contains("controller.ConfirmAndOptimize(", advanced, "Advanced uses the same action");
+            Assert.IsFalse(advanced.Contains("Button(\"evaluate\""), "Advanced does not require a separate Evaluate button");
+            var preview = advanced.Substring(advanced.IndexOf("private void BuildPreview(", StringComparison.Ordinal));
+            Assert.IsFalse(preview.Contains("if (!controller.HasEvaluatedPlan"), "explicit preview always rechecks avatar context, not just configuration");
+            Assert.IsTrue(preview.Contains("if (Execute(false))"), "preview import requires successful current-context evaluation");
+        }
+
         [Test("opening optimizer or changing preferences cannot start candidate imports")]
         public static void OptimizerOpensIdle()
         {

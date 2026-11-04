@@ -511,6 +511,17 @@ namespace AvatarTuner.Editor.UI
         /// Runs the full optimization: generate copies, record the manifest, refresh status.
         /// Returns true when the run completed successfully.
         /// </summary>
+        public bool ConfirmAndOptimize(Action<float, string> progress, Func<bool> cancelled)
+        {
+            if (!EvaluateRecommendations(progress, cancelled)) return false;
+            if (Plan == null || !Plan.HasChanges)
+            {
+                ErrorKey = "ui.hint.noChanges";
+                return false;
+            }
+            return RunOptimization(progress, cancelled);
+        }
+
         public bool RunOptimization(Action<float, string> progress, Func<bool> cancelled)
         {
             if (Report == null || Plan == null)

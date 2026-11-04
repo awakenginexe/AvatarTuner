@@ -12,7 +12,7 @@ Version 2.0.0 is in preparation and has not been published. For local validation
 
 1. Open **Tools → AvatarTuner**, select a scene avatar and analyze it.
 2. Click **Optimize Avatar** and choose **Standard** for automatic texture/format/resolution choices or **Advanced** to include specific textures and set their own targets. Opening either mode and changing settings does not process textures.
-3. Click **Evaluate candidates**, review the proposed changes and estimated memory, then **Confirm & Optimize**. Advanced also offers an explicit preview. Evaluation imports temporary candidates and can be cancelled; originals remain unchanged.
+3. Click **Confirm & Optimize**. AvatarTuner evaluates candidates, then generates and applies acceptable copies in the same action. Advanced preview is optional and evaluates candidates as needed without applying changes. Processing can be cancelled; originals remain unchanged.
 4. Generated assets are stored under `Assets/AvatarTuner-Generated/`. Scene application uses generated material copies and supports Undo and restore. Safely remappable material-swap animations use generated clips and controllers; unsafe cases retain originals and report limitations. Optional NDMF application operates at build time.
 
 Advanced selections and settings are stored per avatar in the project's `Library`. Only checked textures are evaluated and optimized in Advanced. Creating a Category or Custom override takes a snapshot of inherited settings; Reset returns to inheritance. Switching modes retains Advanced tuning and explicit exclusions/protections.

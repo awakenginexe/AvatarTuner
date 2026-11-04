@@ -103,12 +103,8 @@ namespace AvatarTuner.Editor.UI
         {
             var row = Row();
             row.Add(Text(T("advancedDescription")));
-            var evaluate = Button("evaluate", () => Execute(false));
-            evaluate.style.color = UiTheme.Accent;
-            evaluate.SetEnabled(selected.Count > 0 && controller.CompatibilityAllows && !WindowFlow.IsBusy(controller.State));
-            row.Add(evaluate);
-            var apply = Button("apply", () => Execute(true));
-            apply.SetEnabled(controller.HasEvaluatedPlan && controller.Plan != null && controller.Plan.HasChanges && controller.CompatibilityAllows);
+            var apply = new Button(() => Execute(true)) { text = UiStrings.T("ui.button.confirmOptimize") };
+            apply.SetEnabled(selected.Count > 0 && controller.Report != null && controller.CompatibilityAllows && !WindowFlow.IsBusy(controller.State));
             row.Add(apply);
             parent.Add(row);
             parent.Add(Text(T("evaluateHint")));
@@ -125,38 +121,31 @@ namespace AvatarTuner.Editor.UI
                     parent.Add(Text(UiStrings.T("workspace.memoryUnknown", memory.UnknownSourceCount.ToString(), memory.UnknownOutputCount.ToString())));
             }
         }
-        private void Execute(bool apply)
+        private bool Execute(bool apply)
         {
             if (controller.Settings.Mode != OptimizationMode.Advanced)
             {
                 controller.SetOptimizationMode(OptimizationMode.Advanced);
                 if (changed != null) changed();
                 Refresh();
-                if (apply) return;
             }
-            if (apply)
-            {
-                if (!controller.HasEvaluatedPlan || controller.Plan == null || !controller.Plan.HasChanges || !controller.CompatibilityAllows) return;
-                var p = controller.Plan;
-                var memory = controller.PlanMemoryNumbers();
-                if (!EditorUtility.DisplayDialog(T("confirmTitle"), UiStrings.T("workspace.confirmBody",
-                    memory.HasSource ? Bytes(memory.SourceBytes) : T("unknown"), memory.HasOutput ? Bytes(memory.OutputBytes) : T("unknown"),
-                    p.ChangedCount.ToString(CultureInfo.InvariantCulture)), T("apply"), T("cancel"))) return;
-            }
+            if (selected.Count == 0 || controller.Report == null || !controller.CompatibilityAllows || WindowFlow.IsBusy(controller.State)) return false;
             cancelled = false;
             DisposePreview();
+            bool succeeded;
             try
             {
                 Action<float, string> progress = (value, message) =>
                 {
                     if (EditorUtility.DisplayCancelableProgressBar(T(apply ? "applying" : "evaluating"), UiStrings.T(message ?? "opt.phase.candidates"), Mathf.Clamp01(value))) cancelled = true;
                 };
-                if (apply) controller.RunOptimization(progress, () => cancelled);
-                else controller.EvaluateRecommendations(progress, () => cancelled);
+                succeeded = apply ? controller.ConfirmAndOptimize(progress, () => cancelled)
+                    : controller.EvaluateRecommendations(progress, () => cancelled);
             }
             finally { EditorUtility.ClearProgressBar(); }
             if (changed != null) changed();
             Refresh();
+            return succeeded;
         }
         private static string Bytes(long value) { return TextureFormatInfo.FormatTextureMemory(value); }
 
@@ -413,8 +402,13 @@ namespace AvatarTuner.Editor.UI
         private void BuildPreview(VisualElement parent)
         {
             Heading(parent, "preview");
-            var generate = Button("generatePreview", () => { DisposePreview(); preview = controller.GetPreview(currentGuid); Refresh(); });
-            generate.SetEnabled(controller.HasEvaluatedPlan && controller.Settings.Mode == OptimizationMode.Advanced && selected.Contains(currentGuid));
+            var generate = Button("generatePreview", () =>
+            {
+                DisposePreview();
+                if (Execute(false)) preview = controller.GetPreview(currentGuid);
+                Refresh();
+            });
+            generate.SetEnabled(selected.Contains(currentGuid) && controller.CompatibilityAllows && !WindowFlow.IsBusy(controller.State));
             parent.Add(generate);
             if (preview == null) { parent.Add(Text(T("previewHint"))); return; }
             if (!string.IsNullOrEmpty(preview.ErrorKey)) { parent.Add(Text(UiStrings.T(preview.ErrorKey))); return; }

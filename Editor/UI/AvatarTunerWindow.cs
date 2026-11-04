@@ -2087,21 +2087,8 @@ namespace AvatarTuner.Editor.UI
         // ===================================================================== optimization dialog
 
         /// <summary>
-        /// Candidate imports occur only through the explicit Evaluate action.
+        /// Candidate evaluation starts only after confirmation.
         /// </summary>
-        private bool EvaluateRecommendations()
-        {
-            _cancelRequested = false;
-            try
-            {
-                return _controller.EvaluateRecommendations(OnOptimizationProgress, () => _cancelRequested);
-            }
-            finally
-            {
-                EditorUtility.ClearProgressBar();
-            }
-        }
-
         private void OpenOptimizeDialog()
         {
             ClearNotice();
@@ -2238,10 +2225,7 @@ namespace AvatarTuner.Editor.UI
         }
 
         /// <summary>
-        /// The dialog's action row. Cancel closes without doing anything; Confirm is the
-        /// explicit confirmation and is gated on a fresh plan with real changes that the
-        /// compatibility verdict allows. Re-optimizing an already optimized avatar goes
-        /// through exactly this same dialog.
+        /// Confirmation starts evaluation and generation; opening and editing stay passive.
         /// </summary>
         private VisualElement BuildDialogButtons()
         {
@@ -2249,24 +2233,10 @@ namespace AvatarTuner.Editor.UI
             row.AddToClassList("at-row");
             row.style.marginTop = 8;
 
-            var planFresh = _controller.HasEvaluatedPlan && _controller.IsPlanFresh();
             var reasonKey = OptimizationDialogModel.ConfirmDisabledReasonKey(
                 WindowFlow.IsBusy(_controller.State),
-                _controller.Plan != null,
-                _controller.Plan != null && _controller.Plan.HasChanges,
-                planFresh,
+                _controller.Report != null,
                 _controller.CompatibilityAllows);
-
-            var hint = WorkflowModel.OptimizeDisabledReasonKey(
-                _controller.State,
-                _controller.Avatar != null,
-                _controller.Plan != null,
-                _controller.Plan != null && _controller.Plan.HasChanges,
-                _controller.CompatibilityAllows);
-            if (reasonKey == null && hint != null)
-            {
-                reasonKey = hint;
-            }
 
             var cancel = new Button(CloseOptimizeDialog) { text = UiStrings.T("ui.button.cancel") };
             cancel.AddToClassList("at-btn");
@@ -2274,11 +2244,6 @@ namespace AvatarTuner.Editor.UI
             cancel.style.color = UiTheme.Text;
             row.Add(cancel);
 
-            var evaluate = new Button(() => { EvaluateRecommendations(); RefreshView(); })
-                { text = UiStrings.T("workspace.evaluate") };
-            evaluate.AddToClassList("at-btn");
-            evaluate.SetEnabled(_controller.Report != null && _controller.CompatibilityAllows && !WindowFlow.IsBusy(_controller.State));
-            row.Add(evaluate);
             row.Add(Spacer());
 
             var confirm = new Button(ConfirmOptimize) { text = UiStrings.T("ui.button.confirmOptimize") };
@@ -2294,9 +2259,7 @@ namespace AvatarTuner.Editor.UI
         }
 
         /// <summary>
-        /// Executes the optimization for the reviewed plan. The plan is rebuilt from the
-        /// current configuration inside RunOptimization and a stale plan is refused, so
-        /// what is executed is exactly what was reviewed.
+        /// Evaluates the current configuration and applies it after this confirmation.
         /// </summary>
         private void ConfirmOptimize()
         {
@@ -2386,7 +2349,7 @@ namespace AvatarTuner.Editor.UI
             bool succeeded;
             try
             {
-                succeeded = _controller.RunOptimization(OnOptimizationProgress, () => _cancelRequested);
+                succeeded = _controller.ConfirmAndOptimize(OnOptimizationProgress, () => _cancelRequested);
             }
             finally
             {

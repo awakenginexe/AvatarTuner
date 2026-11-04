@@ -10,7 +10,7 @@ AvatarTuner 在 Unity Editor 中分析并优化 VRChat 头像的纹理内存。�
 
 ## 使用
 
-打开 **Tools → AvatarTuner**，选择场景头像并分析，点击 **Optimize Avatar**。选择 **Standard** 自动选择纹理、格式和分辨率，或选择 **Advanced** 勾选特定纹理并设置各自目标。打开窗口或更改设置不会处理纹理。主动评估候选项，检查拟议更改和内存估算后再确认并优化。评估会导入临时候选资源，可以取消。生成文件位于 `Assets/AvatarTuner-Generated/`；场景应用支持 Undo 和恢复。
+打开 **Tools → AvatarTuner**，选择场景头像并分析，点击 **Optimize Avatar**。选择 **Standard** 自动选择，或选择 **Advanced** 勾选纹理并设置目标。只需点击一次**确认并优化**，系统就会先评估候选项，再生成并应用合格副本。打开窗口或更改设置不会处理纹理。Advanced 预览为可选步骤，不会应用更改。处理可以取消。生成文件位于 `Assets/AvatarTuner-Generated/`；场景应用支持 Undo 和恢复。
 
 Advanced 的勾选和设置按头像保存在项目 `Library` 中；只评估和优化已勾选纹理。创建 Category 或 Custom 覆盖时会复制当时继承的整套设置，重置会恢复继承。切换模式会保留 Advanced 调整及明确设置的排除和保护。
 
