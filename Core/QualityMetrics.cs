@@ -65,15 +65,29 @@ namespace AvatarTuner.Core
         /// </summary>
         public static double Ssim(byte[] reference, byte[] candidate, int width, int height, int channels)
         {
-            ValidateBuffers(reference, candidate, width, height, channels);
-            if (width < 8 || height < 8)
-            {
-                // Too small for a meaningful window; fall back to a global comparison.
-                return GlobalSsim(reference, candidate, width, height, channels);
-            }
+            double minimumWindow;
+            return ComputeSsim(reference, candidate, width, height, channels, 0, out minimumWindow);
+        }
 
-            const double C1 = 6.5025;   // (0.01 * 255)^2
-            const double C2 = 58.5225;  // (0.03 * 255)^2
+        /// <summary>Returns mean luminance similarity and the worst local RGB score.</summary>
+        public static double Ssim(byte[] reference, byte[] candidate, int width, int height, int channels, out double minimumWindow)
+        {
+            return Ssim(reference, candidate, width, height, channels, out minimumWindow, false);
+        }
+
+        /// <summary>Includes local alpha detail when the texture uses transparency.</summary>
+        public static double Ssim(byte[] reference, byte[] candidate, int width, int height, int channels,
+            out double minimumWindow, bool includeAlpha)
+        {
+            return ComputeSsim(reference, candidate, width, height, channels,
+                includeAlpha ? channels : Math.Min(channels, 3), out minimumWindow);
+        }
+
+        private static double ComputeSsim(byte[] reference, byte[] candidate, int width, int height, int channels,
+            int localChannels, out double minimumWindow)
+        {
+            ValidateBuffers(reference, candidate, width, height, channels);
+            minimumWindow = 1.0;
             const int Window = 8;
 
             var refLum = ToLuminance(reference, width, height, channels);
@@ -82,16 +96,18 @@ namespace AvatarTuner.Core
             double sum = 0.0;
             var windows = 0;
 
-            for (var y = 0; y + Window <= height; y += Window)
+            for (var y = 0; y < height; y += Window)
             {
-                for (var x = 0; x + Window <= width; x += Window)
+                for (var x = 0; x < width; x += Window)
                 {
                     double sumR = 0, sumC = 0, sumRR = 0, sumCC = 0, sumRC = 0;
-                    var count = Window * Window;
+                    var windowWidth = Math.Min(Window, width - x);
+                    var windowHeight = Math.Min(Window, height - y);
+                    var count = windowWidth * windowHeight;
 
-                    for (var wy = 0; wy < Window; wy++)
+                    for (var wy = 0; wy < windowHeight; wy++)
                     {
-                        for (var wx = 0; wx < Window; wx++)
+                        for (var wx = 0; wx < windowWidth; wx++)
                         {
                             var idx = (y + wy) * width + (x + wx);
                             double r = refLum[idx];
@@ -104,15 +120,25 @@ namespace AvatarTuner.Core
                         }
                     }
 
-                    var meanR = sumR / count;
-                    var meanC = sumC / count;
-                    var varR = sumRR / count - meanR * meanR;
-                    var varC = sumCC / count - meanC * meanC;
-                    var covar = sumRC / count - meanR * meanC;
-
-                    var numerator = (2 * meanR * meanC + C1) * (2 * covar + C2);
-                    var denominator = (meanR * meanR + meanC * meanC + C1) * (varR + varC + C2);
-                    sum += denominator <= 0.0 ? 1.0 : numerator / denominator;
+                    var score = WindowSsim(sumR, sumC, sumRR, sumCC, sumRC, count);
+                    sum += score;
+                    minimumWindow = Math.Min(minimumWindow, score);
+                    for (var channel = 0; channel < localChannels; channel++)
+                    {
+                        double channelR = 0, channelC = 0, channelRR = 0, channelCC = 0, channelRC = 0;
+                        for (var wy = 0; wy < windowHeight; wy++)
+                            for (var wx = 0; wx < windowWidth; wx++)
+                            {
+                                var index = ((y + wy) * width + x + wx) * channels + channel;
+                                double rValue = reference[index], cValue = candidate[index];
+                                channelR += rValue;
+                                channelC += cValue;
+                                channelRR += rValue * rValue;
+                                channelCC += cValue * cValue;
+                                channelRC += rValue * cValue;
+                            }
+                        minimumWindow = Math.Min(minimumWindow, WindowSsim(channelR, channelC, channelRR, channelCC, channelRC, count));
+                    }
                     windows++;
                 }
             }
@@ -120,29 +146,16 @@ namespace AvatarTuner.Core
             return windows == 0 ? 1.0 : sum / windows;
         }
 
-        private static double GlobalSsim(byte[] reference, byte[] candidate, int width, int height, int channels)
+        private static double WindowSsim(double sumR, double sumC, double sumRR, double sumCC, double sumRC, int count)
         {
             const double C1 = 6.5025;
             const double C2 = 58.5225;
 
-            var total = (long)width * height;
-            double sumR = 0, sumC = 0, sumRR = 0, sumCC = 0, sumRC = 0;
-            for (var i = 0; i < total; i++)
-            {
-                double r = LuminanceAt(reference, i, channels);
-                double c = LuminanceAt(candidate, i, channels);
-                sumR += r;
-                sumC += c;
-                sumRR += r * r;
-                sumCC += c * c;
-                sumRC += r * c;
-            }
-
-            var meanR = sumR / total;
-            var meanC = sumC / total;
-            var varR = sumRR / total - meanR * meanR;
-            var varC = sumCC / total - meanC * meanC;
-            var covar = sumRC / total - meanR * meanC;
+            var meanR = sumR / count;
+            var meanC = sumC / count;
+            var varR = sumRR / count - meanR * meanR;
+            var varC = sumCC / count - meanC * meanC;
+            var covar = sumRC / count - meanR * meanC;
 
             var numerator = (2 * meanR * meanC + C1) * (2 * covar + C2);
             var denominator = (meanR * meanR + meanC * meanC + C1) * (varR + varC + C2);
@@ -333,6 +346,25 @@ namespace AvatarTuner.Core
             }
 
             return Clamp01(Math.Sqrt(varianceSum / pixelCount) / 255.0);
+        }
+
+        /// <summary>
+        /// Decodes RGBA normal-map texels the way Unity's UnpackNormal does (x = R*A, y = G),
+        /// so BC5, DXT5nm and uncompressed encodings compare as the same XYZ normal.
+        /// </summary>
+        public static byte[] UnpackNormals(byte[] rgba)
+        {
+            var result = new byte[rgba.Length];
+            for (var i = 0; i + 3 < rgba.Length; i += 4)
+            {
+                double x = rgba[i] / 255.0 * (rgba[i + 3] / 255.0) * 2 - 1, y = rgba[i + 1] / 127.5 - 1;
+                double z = Math.Sqrt(Math.Max(0, 1 - x * x - y * y));
+                result[i] = (byte)Math.Round((x + 1) * 127.5);
+                result[i + 1] = rgba[i + 1];
+                result[i + 2] = (byte)Math.Round((z + 1) * 127.5);
+                result[i + 3] = 255;
+            }
+            return result;
         }
 
         /// <summary>

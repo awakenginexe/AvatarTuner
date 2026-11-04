@@ -63,6 +63,7 @@ namespace AvatarTuner.Editor.UI
         private VisualElement _nav;
         private VisualElement _navItems;
         private VisualElement _content;
+        private ScrollView _contentScroll;
         private VisualElement _selectionArea;
         private VisualElement _statusArea;
         private VisualElement _actionArea;
@@ -128,12 +129,12 @@ namespace AvatarTuner.Editor.UI
             _nav.Add(_navItems);
             body.Add(_nav);
 
-            var contentScroll = new ScrollView();
-            contentScroll.AddToClassList("at-grow");
+            _contentScroll = new ScrollView();
+            _contentScroll.AddToClassList("at-grow");
             _content = new VisualElement();
             _content.AddToClassList("at-content");
-            contentScroll.Add(_content);
-            body.Add(contentScroll);
+            _contentScroll.Add(_content);
+            body.Add(_contentScroll);
 
             _root.Add(body);
 
@@ -341,6 +342,8 @@ namespace AvatarTuner.Editor.UI
                 return;
             }
 
+            var savedScroll = _contentScroll != null ? _contentScroll.scrollOffset : new Vector2(0, 0);
+
             BuildSelection();
             BuildNav();
             BuildActions();
@@ -362,6 +365,11 @@ namespace AvatarTuner.Editor.UI
             catch (Exception ex)
             {
                 _content.Add(Message(UiStrings.T("error.unexpected", ex.Message), UiTheme.Error));
+            }
+
+            if (_contentScroll != null && (savedScroll.x != 0 || savedScroll.y != 0))
+            {
+                _contentScroll.scrollOffset = savedScroll;
             }
 
             BuildDialog();
@@ -1265,6 +1273,10 @@ namespace AvatarTuner.Editor.UI
                 }
             });
             toolbar.Add(sortPicker);
+            toolbar.Add(Spacer());
+            var openAdvanced = SecondaryButton("workspace.open", () => OptimizationWorkspace.Open(_controller, RefreshView));
+            openAdvanced.tooltip = UiStrings.T("workspace.advancedDescription");
+            toolbar.Add(openAdvanced);
 
             container.Add(toolbar);
 
@@ -1824,34 +1836,17 @@ namespace AvatarTuner.Editor.UI
             // ---- measured facts (really written files), clearly labelled as measured
             if (generation != null)
             {
-                long diskBefore = 0;
-                if (_controller.Report != null && _controller.Plan != null)
-                {
-                    for (var i = 0; i < _controller.Plan.Textures.Count; i++)
-                    {
-                        var entry = _controller.Report.FindTexture(_controller.Plan.Textures[i].TextureGuid);
-                        if (entry != null)
-                        {
-                            diskBefore += entry.SourceFileSizeBytes;
-                        }
-                    }
-                }
-
-                long diskAfter = 0;
-                for (var i = 0; i < generation.Generated.Count; i++)
-                {
-                    diskAfter += generation.Generated[i].GeneratedFileSizeBytes;
-                }
-
                 var diskRow = new VisualElement();
                 diskRow.AddToClassList("at-row");
                 diskRow.Add(BigValue(UiStrings.T("results.diskBefore"),
-                    TextureFormatInfo.FormatBytes(diskBefore), UiTheme.TextSecondary));
+                    numbers.HasSourceDisk ? TextureFormatInfo.FormatBytes(numbers.SourceDiskBytes) : UiStrings.T("ui.label.unknown"), UiTheme.TextSecondary));
                 diskRow.Add(BigValue("→", string.Empty, UiTheme.Neutral));
                 diskRow.Add(BigValue(UiStrings.T("results.diskAfter"),
-                    TextureFormatInfo.FormatBytes(diskAfter), UiTheme.Text));
-                diskRow.Add(Chip(UiStrings.T("ui.label.measured"), SemanticTone.Success));
+                    numbers.HasOutputDisk ? TextureFormatInfo.FormatBytes(numbers.OutputDiskBytes) : UiStrings.T("ui.label.unknown"), UiTheme.Text));
+                if (numbers.HasSourceDisk && numbers.HasOutputDisk)
+                    diskRow.Add(Chip(UiStrings.T("ui.label.measured"), SemanticTone.Success));
                 card.Add(diskRow);
+                card.Add(Line(UiStrings.T("results.diskInfo")));
             }
 
             card.Add(DetailRow("ui.label.outputFolder", GeneratedAssetStore.GeneratedRoot));
@@ -2212,6 +2207,7 @@ namespace AvatarTuner.Editor.UI
             standard.style.backgroundColor = UiTheme.SelectedBackground;
             card.Add(standard);
             card.Add(Line(UiStrings.T("workspace.standardDescription")));
+            card.Add(BuildStandardLevels());
             var advanced = new Button(() =>
             {
                 _dialogOpen = false;
@@ -2222,6 +2218,26 @@ namespace AvatarTuner.Editor.UI
             card.Add(advanced);
             card.Add(Line(UiStrings.T("workspace.advancedDescription")));
             return card;
+        }
+
+        private VisualElement BuildStandardLevels()
+        {
+            var options = Card("workspace.standardLevel");
+            var row = new VisualElement();
+            row.AddToClassList("at-row");
+            foreach (StandardOptimizationLevel level in Enum.GetValues(typeof(StandardOptimizationLevel)))
+            {
+                var captured = level;
+                var button = new Button(() => { _controller.SetOptimizationMode(OptimizationMode.Standard); _controller.SetStandardLevel(captured); RefreshView(); })
+                    { text = UiStrings.T("workspace.standardLevel." + level + ".name") };
+                button.AddToClassList("at-btn");
+                button.style.flexGrow = 1;
+                button.style.backgroundColor = _controller.Settings.StandardLevel == level ? UiTheme.SelectedBackground : UiTheme.CardBackground;
+                row.Add(button);
+            }
+            options.Add(row);
+            options.Add(Line(UiStrings.T("workspace.standardLevel." + _controller.Settings.StandardLevel + ".description")));
+            return options;
         }
 
         /// <summary>
@@ -2264,6 +2280,7 @@ namespace AvatarTuner.Editor.UI
         private void ConfirmOptimize()
         {
             _dialogOpen = false;
+            _controller.SetOptimizationMode(OptimizationMode.Standard);
             RunOptimize();
         }
 

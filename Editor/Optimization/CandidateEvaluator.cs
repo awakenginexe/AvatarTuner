@@ -55,7 +55,7 @@ namespace AvatarTuner.Editor.Optimization
 
         public static string CacheKey(TextureEntry entry, TextureCandidate candidate)
         {
-            return StableHash.CombineOrdered(new[] { Revision(entry.Path), candidate.ToHashToken() });
+            return StableHash.CombineOrdered(new[] { CandidateQuality.ComparisonVersion, Revision(entry.Path), candidate.ToHashToken() });
         }
 
         public CandidateQuality Measure(TextureEntry entry, TextureCandidate candidate)
@@ -68,7 +68,7 @@ namespace AvatarTuner.Editor.Optimization
             var cacheable = true;
             try
             {
-                if (entry.IsNormalMap || !SupportedSource(entry.Path)) return quality;
+                if (!SupportedSource(entry.Path)) return quality;
                 if (_progress != null) _progress(_candidateCount > 0 ? (float)++_evaluated / _candidateCount : 0f, "opt.phase.candidates");
                 CheckCancelled();
                 EnsureBaseline(entry);
@@ -82,8 +82,9 @@ namespace AvatarTuner.Editor.Optimization
                 if (texture.width != entry.Width || texture.height != entry.Height)
                     pixels = TextureResampler.Resize(pixels, texture.width, texture.height, entry.Width, entry.Height,
                         ResizeFilter.Mitchell, entry.SrgbTexture);
+                if (entry.IsNormalMap) pixels = QualityMetrics.UnpackNormals(pixels);
                 quality = CandidateQuality.Compare(_baseline, pixels, entry.Width, entry.Height,
-                    entry.HasAlphaChannel || entry.AlphaIsTransparency);
+                    !entry.IsNormalMap && (entry.HasAlphaChannel || entry.AlphaIsTransparency), entry.IsNormalMap);
             }
             catch (OperationCanceledException) { cacheable = false; throw; }
             catch (Exception ex)
@@ -121,7 +122,7 @@ namespace AvatarTuner.Editor.Optimization
             var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             if (texture == null || texture.width != entry.Width || texture.height != entry.Height)
                 throw new InvalidOperationException("Source dimensions changed; analyze again.");
-            _baseline = Bytes(texture);
+            _baseline = entry.IsNormalMap ? QualityMetrics.UnpackNormals(Bytes(texture)) : Bytes(texture);
             _baselineSource = entry.Path;
         }
 
@@ -131,7 +132,9 @@ namespace AvatarTuner.Editor.Optimization
             var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             TunerTextureFormat format;
             var extension = Path.GetExtension(path).ToLowerInvariant();
-            return importer != null && importer.textureType == TextureImporterType.Default &&
+            // Normal maps qualify when they hold real normals (not a height map converted on import).
+            return importer != null && (importer.textureType == TextureImporterType.Default ||
+                (importer.textureType == TextureImporterType.NormalMap && !importer.convertToNormalmap)) &&
                 importer.textureShape == TextureImporterShape.Texture2D && texture != null &&
                 extension != ".exr" && extension != ".hdr" &&
                 TextureFormatInfo.TryParse(texture.format.ToString(), out format) &&
@@ -211,7 +214,7 @@ namespace AvatarTuner.Editor.Optimization
                 var height = Math.Max(1, (int)Math.Round((double)entry.Height * width / entry.Width));
                 if (height > 512) { width = Math.Max(1, width * 512 / height); height = 512; }
                 var original = TextureResampler.Resize(_baseline, entry.Width, entry.Height, width, height, ResizeFilter.Area, entry.SrgbTexture);
-                var optimized = TextureResampler.Resize(Bytes(texture), texture.width, texture.height, width, height, ResizeFilter.Area, entry.SrgbTexture);
+                var optimized = TextureResampler.Resize(entry.IsNormalMap ? QualityMetrics.UnpackNormals(Bytes(texture)) : Bytes(texture), texture.width, texture.height, width, height, ResizeFilter.Area, entry.SrgbTexture);
                 var difference = new byte[original.Length];
                 for (var i = 0; i < difference.Length; i++)
                     difference[i] = i % 4 == 3 ? (byte)255 : (byte)Math.Abs(original[i] - optimized[i]);

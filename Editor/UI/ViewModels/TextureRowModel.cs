@@ -107,6 +107,30 @@ namespace AvatarTuner.Editor.ViewModels
 
     public static class TextureRows
     {
+        public static bool AllIncluded(IEnumerable<PlannedTexture> textures, ISet<string> included)
+        {
+            if (textures == null || included == null) return false;
+            var any = false;
+            foreach (var texture in textures)
+            {
+                if (texture == null || string.IsNullOrEmpty(texture.TextureGuid)) continue;
+                any = true;
+                if (!included.Contains(texture.TextureGuid)) return false;
+            }
+            return any;
+        }
+
+        public static void SetIncluded(IEnumerable<PlannedTexture> textures, ISet<string> included, bool value)
+        {
+            if (textures == null || included == null) return;
+            foreach (var texture in textures)
+            {
+                if (texture == null || string.IsNullOrEmpty(texture.TextureGuid)) continue;
+                if (value) included.Add(texture.TextureGuid);
+                else included.Remove(texture.TextureGuid);
+            }
+        }
+
         /// <summary>Builds one row from scan data plus the planner's decision.</summary>
         public static TextureRowModel Build(TextureEntry entry, PlannedTexture planned)
         {

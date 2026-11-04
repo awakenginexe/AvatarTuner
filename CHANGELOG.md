@@ -14,14 +14,16 @@ extracted from the matching section below.
 - Classifies textures using their usage and reports the evidence; users can correct categories. Shared textures are counted once, and unknown memory remains explicitly incomplete.
 - Chooses the smallest candidate meeting quality constraints; the memory ratio is a goal and may not be reached. Standard uses Unity Mitchell resizing; Best Quality also compares Unity Bilinear and, for PNG/JPEG, Area, Lanczos3 and Mitchell. Native importer compression quality is 50 or 100 respectively.
 - Reports planned and imported-property-based memory estimates separately; neither is a VRChat measurement. ASTC 4x4, 6x6 and 8x8 are Android-only and require an active Android target and decoding support.
+- Standard Minimum, Normal and Maximum now give clearly different results and compress much more. Uncompressed RGB24/RGBA32 textures are converted to BC formats, textures without a recognized category (for example an outfit named "Costume") are optimized with default thresholds, LDR emission maps are treated as color, and lilToon layer and mask slots (`_Main2ndTex`, `*BlendMask`, `_ShadowBorderMask`) are recognized. Minimum may drop one resolution step only when strict full-resolution checks show no visible loss; Normal and Maximum judge masks at the same viewing scale as color, with stricter limits.
+- Normal maps are now evaluated by decoding them the way Unity shaders do (BC5 and DXT5nm compare correctly) and judged by average lighting-angle change: at most 2° for Normal and 3.5° for Maximum. Minimum keeps strict full-resolution checks.
 - Settings persist per avatar in the project Library. Category and Custom overrides copy inherited settings when created; reset returns to inheritance. Quick quality changes preserve Custom overrides.
 - Rechecks scene bindings, materials, shaders and protection evidence before applying a reviewed plan. Failed generation, application or manifest persistence retains the previous recovery state and rolls back generated files; duplicate and empty material slots keep their indices.
 
 ### Migration and limitations
 
 - Legacy manifests remain readable and restore remains available. Their measured basis is unknown, and outputs from older tool versions are stale and require re-optimization.
-- HDR, normal maps and ambiguous shapes are preserved when imported candidates cannot be validated. BC6H is recognized for memory arithmetic and reporting; no new HDR transformation is provided.
-- Original assets remain unchanged; generated copies, Undo, restore and optional NDMF build application remain available. Unity and VRChat validation of 2.0.0 is pending; this version has not been published.
+- HDR, normal maps converted from height maps and ambiguous shapes are preserved when imported candidates cannot be validated. BC6H is recognized for memory arithmetic and reporting; no new HDR transformation is provided.
+- Original assets remain unchanged; generated copies, Undo, restore and optional NDMF build application remain available.
 
 ## v1.0.1
 

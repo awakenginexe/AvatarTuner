@@ -10,6 +10,48 @@ namespace AvatarTuner.StandaloneTests
 {
     public static class OptimizationModeTests
     {
+        [Test("editing compression retains the corrected category's inherited settings")]
+        public static void CompressionEditUsesCorrectedCategory()
+        {
+            var settings = new OptimizationSettings { Mode = OptimizationMode.Advanced };
+            settings.Categories[SemanticCategory.Body] = new TextureSettings { DesiredReduction = 2, MinPsnr = 30 };
+            settings.Categories[SemanticCategory.Hair] = new TextureSettings { DesiredReduction = 3, MinPsnr = 49, KeepResolution = true };
+            settings.CategoryCorrections["texture"] = SemanticCategory.Hair;
+            var editable = settings.Resolve("texture", SemanticCategory.Body).Settings.Clone();
+            editable.Format = TunerTextureFormat.BC7;
+            settings.Textures["texture"] = editable;
+            Assert.AreEqual(3d, editable.DesiredReduction, "corrected-category ratio is retained");
+            Assert.AreEqual(49d, editable.MinPsnr, "corrected-category quality is retained");
+            Assert.IsTrue(editable.KeepResolution, "corrected-category resolution protection is retained");
+            Assert.AreEqual(TunerTextureFormat.Automatic, settings.Categories[SemanticCategory.Hair].Format, "inherited category is not changed by the texture edit");
+        }
+
+        [Test("select all includes filtered textures across every page and preserves hidden selections")]
+        public static void SelectAllFilteredTextures()
+        {
+            var textures = new List<PlannedTexture>();
+            for (var i = 0; i < 121; i++) textures.Add(new PlannedTexture { TextureGuid = "texture-" + i });
+            var selected = new HashSet<string> { "outside-filter" };
+            Assert.IsFalse(TextureRows.AllIncluded(textures, selected), "initially unchecked");
+            TextureRows.SetIncluded(textures, selected, true);
+            Assert.AreEqual(122, selected.Count, "all pages plus existing hidden selection");
+            Assert.IsTrue(TextureRows.AllIncluded(textures, selected), "all filtered textures checked");
+            TextureRows.SetIncluded(textures, selected, false);
+            Assert.AreEqual(1, selected.Count, "unchecking affects only the filtered result");
+            Assert.IsTrue(selected.Contains("outside-filter"), "hidden selection is preserved");
+            Assert.IsFalse(TextureRows.AllIncluded(new List<PlannedTexture>(), selected), "empty results are never checked");
+        }
+
+        [Test("selection ignores missing identities and detects partial selection")]
+        public static void PartialTextureSelection()
+        {
+            var textures = new List<PlannedTexture> { null, new PlannedTexture(), new PlannedTexture { TextureGuid = "a" }, new PlannedTexture { TextureGuid = "b" } };
+            var selected = new HashSet<string> { "a" };
+            Assert.IsFalse(TextureRows.AllIncluded(textures, selected), "partially selected");
+            TextureRows.SetIncluded(textures, selected, true);
+            Assert.AreEqual(2, selected.Count, "only persistent texture identities are selected");
+            Assert.IsTrue(TextureRows.AllIncluded(textures, selected), "all selectable textures checked");
+        }
         [Test("Advanced reduction targets change the chosen candidate while Standard remains automatic")]
         public static void AdvancedReductionTarget()
         {

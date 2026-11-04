@@ -101,7 +101,7 @@ namespace AvatarTuner.Editor.Optimization
         public static string AdaptiveConfigHash(TexturePolicy policy, IDictionary<string, TextureOverride> overrides,
             OptimizationSettings settings)
         {
-            return StableHash.CombineOrdered(new[] { ManifestStateBuilder.ConfigHash(policy, overrides), settings.ToHashToken() });
+            return StableHash.CombineOrdered(new[] { CandidateQuality.ComparisonVersion, ManifestStateBuilder.ConfigHash(policy, overrides), settings.ToHashToken() });
         }
 
         public static TextureOptimizationPlan BuildAdaptive(AvatarAnalysisReport report, TexturePolicy policy,
@@ -184,7 +184,9 @@ namespace AvatarTuner.Editor.Optimization
                     ? CompressionPlanner.Plan(BuildRequest(entry), policy, effectiveOverride, quality)
                     : AdaptivePlanner.Select(BuildRequest(entry), policy, effectiveOverride,
                         planned.EffectiveSettings.Settings, planned.Category,
-                        evaluate == null ? null : candidate => evaluate(entry, candidate), settings.Mode == OptimizationMode.Advanced);
+                        evaluate == null ? null : candidate => evaluate(entry, candidate),
+                        useReductionTarget: settings.Mode == OptimizationMode.Advanced,
+                        standardLevel: settings.Mode == OptimizationMode.Standard ? (StandardOptimizationLevel?)settings.StandardLevel : null);
                 // Candidate selection retains physical GPU arithmetic; displayed totals follow the SDK.
                 var sourceMipCount = entry.CurrentMipCount > 0 ? entry.CurrentMipCount :
                     entry.Width > 0 && entry.Height > 0 ? (entry.MipMapsEnabled ? VramCalculator.MipLevelCount(entry.Width, entry.Height) : 1) : 0;

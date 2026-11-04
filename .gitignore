@@ -31,3 +31,4 @@ release-notes.md
 *.suo
 .DS_Store
 Thumbs.db
+dist.meta

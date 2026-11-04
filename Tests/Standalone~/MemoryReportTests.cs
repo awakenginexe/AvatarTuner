@@ -18,6 +18,26 @@ namespace AvatarTuner.StandaloneTests
     {
         private const long MiB = 1024L * 1024L;
 
+        [Test("disk output includes unchanged sources instead of only generated copies")]
+        public static void DiskTotalsCoverTheWholeAvatar()
+        {
+            var report = MakeReport();
+            report.Textures[0].SourceFileSizeBytes = 10 * MiB;
+            report.Textures[1].SourceFileSizeBytes = 30 * MiB;
+            var plan = MakePlan();
+            plan.Textures.Add(plan.Textures[1]);
+            var generation = new TextureGenerationResult();
+            generation.Generated.Add(new GeneratedTextureAsset { SourceGuid = "tex-a", GeneratedFileSizeBytes = 6 * MiB });
+            var numbers = MemoryReportModel.Build(report, plan, generation);
+            Assert.AreEqual(40 * MiB, numbers.SourceDiskBytes, "shared sources count once");
+            Assert.AreEqual(36 * MiB, numbers.OutputDiskBytes, "6 MiB generated + 30 MiB unchanged");
+            Assert.IsTrue(numbers.HasSourceDisk && numbers.HasOutputDisk, "both complete sets are known");
+            generation.Generated[0].GeneratedFileSizeBytes = 0;
+            Assert.IsFalse(MemoryReportModel.Build(report, plan, generation).HasOutputDisk, "an unreadable generated file is not zero bytes");
+            generation.Generated.Clear();
+            Assert.AreEqual(40 * MiB, MemoryReportModel.Build(report, plan, generation).OutputDiskBytes, "no generated copies means the original set remains");
+        }
+
         [Test("the displayed before/after/saving trio is internally consistent")]
         public static void TrioIsInternallyConsistent()
         {

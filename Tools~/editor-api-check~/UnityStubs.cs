@@ -721,6 +721,7 @@ namespace UnityEngine.UIElements
     {
         public ScrollView() { }
         public ScrollView(ScrollViewMode mode) { }
+        public Vector2 scrollOffset { get; set; }
     }
 
     public class Image : VisualElement

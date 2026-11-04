@@ -21,13 +21,38 @@ namespace AvatarTuner.Core
     }
     public sealed class CandidateQuality
     {
+        public const string ComparisonVersion = "visual-detail-v2";
         public double Psnr, Ssim, AlphaCoverageError, EdgeError, MeanColorError, MaxChannelError, NormalAngularError;
+        public double MinLocalSsim = 1;
         public bool Available;
+        public CandidateQuality Visual512, Visual256;
         public static CandidateQuality Compare(byte[] reference, byte[] candidate, int width, int height, bool alphaUsed, bool normalMap = false)
+        {
+            var quality = ComparePixels(reference, candidate, width, height, alphaUsed, normalMap);
+            if (!normalMap)
+            {
+                quality.Visual512 = CompareView(reference, candidate, width, height, alphaUsed, 512);
+                quality.Visual256 = CompareView(reference, candidate, width, height, alphaUsed, 256);
+            }
+            return quality;
+        }
+
+        private static CandidateQuality CompareView(byte[] reference, byte[] candidate, int width, int height, bool alphaUsed, int longEdge)
+        {
+            var maximum = Math.Max(width, height);
+            if (maximum <= longEdge) return null;
+            var w = Math.Max(1, (int)((long)width * longEdge / maximum));
+            var h = Math.Max(1, (int)((long)height * longEdge / maximum));
+            // Filter both images at the same viewing scale; never compare a candidate to itself.
+            return ComparePixels(QualityMetrics.DownsampleBox(reference, width, height, 4, w, h),
+                QualityMetrics.DownsampleBox(candidate, width, height, 4, w, h), w, h, alphaUsed, false);
+        }
+
+        private static CandidateQuality ComparePixels(byte[] reference, byte[] candidate, int width, int height, bool alphaUsed, bool normalMap)
         {
             var q = new CandidateQuality();
             q.Psnr = QualityMetrics.Psnr(reference, candidate, width, height, 4);
-            q.Ssim = QualityMetrics.Ssim(reference, candidate, width, height, 4);
+            q.Ssim = QualityMetrics.Ssim(reference, candidate, width, height, 4, out q.MinLocalSsim, alphaUsed);
             q.AlphaCoverageError = alphaUsed ? Math.Abs(QualityMetrics.AlphaCoverage(reference, width, height, 4, 0.5) - QualityMetrics.AlphaCoverage(candidate, width, height, 4, 0.5)) : 0;
             q.EdgeError = Math.Abs(QualityMetrics.EdgeEnergy(reference, width, height, 4) - QualityMetrics.EdgeEnergy(candidate, width, height, 4));
             double sum = 0, angle = 0;
@@ -61,10 +86,12 @@ namespace AvatarTuner.Core
     }
     public static class AdaptivePlanner
     {
-        public static List<TextureCandidate> Candidates(TexturePlanRequest r, TexturePolicy policy, TextureOverride o, TextureSettings settings, SemanticCategory category)
+        public static List<TextureCandidate> Candidates(TexturePlanRequest r, TexturePolicy policy, TextureOverride o, TextureSettings settings, SemanticCategory category,
+            StandardOptimizationLevel? standardLevel = null)
         {
             var result = new List<TextureCandidate>();
-            if (r == null || policy == null || settings == null || !ValidSettings(settings) || !r.IsValid || !r.CurrentFormatKnown || settings.Excluded || settings.ProtectQuality || (o != null && o.Excluded) || category == SemanticCategory.Unknown || category == SemanticCategory.Mixed || r.Usage == TextureUsageKind.Unknown || r.Usage == TextureUsageKind.UserInterface || r.FaceCount != 1) return result;
+            if (r == null || policy == null || settings == null || !ValidSettings(settings) || !r.IsValid || !r.CurrentFormatKnown || settings.Excluded || settings.ProtectQuality || (o != null && o.Excluded) || category == SemanticCategory.Mixed || r.Usage == TextureUsageKind.Unknown || r.Usage == TextureUsageKind.UserInterface || r.FaceCount != 1 ||
+                (standardLevel.HasValue && !Enum.IsDefined(typeof(StandardOptimizationLevel), standardLevel.Value))) return result;
             if (TextureFormatInfo.BytesPerPixel(r.CurrentFormat) <= 0) return result;
             var formats = new List<TunerTextureFormat>();
             if (settings.Platform == OptimizationPlatform.Windows)
@@ -82,12 +109,12 @@ namespace AvatarTuner.Core
                 }
                 else if (r.Usage == TextureUsageKind.GreyscaleData && TextureFormatInfo.ChannelCount(r.CurrentFormat) == 1)
                     formats.Add(TunerTextureFormat.BC4);
-                else if (r.Usage == TextureUsageKind.AlbedoOpaque && !r.SourceHasAlpha && !r.AlphaChannelUsed)
+                else if ((r.Usage == TextureUsageKind.AlbedoOpaque || r.Usage == TextureUsageKind.Emission) && !r.SourceHasAlpha && !r.AlphaChannelUsed)
                 {
                     formats.Add(TunerTextureFormat.BC1);
                     formats.Add(TunerTextureFormat.BC7);
                 }
-                else if (r.Usage == TextureUsageKind.AlbedoWithAlpha || r.Usage == TextureUsageKind.AlbedoOpaque)
+                else if (r.Usage == TextureUsageKind.AlbedoWithAlpha || r.Usage == TextureUsageKind.AlbedoOpaque || r.Usage == TextureUsageKind.Emission)
                 {
                     formats.Add(TunerTextureFormat.BC3);
                     formats.Add(TunerTextureFormat.BC7);
@@ -99,7 +126,7 @@ namespace AvatarTuner.Core
                 formats.Add(TunerTextureFormat.ASTC_6x6);
                 formats.Add(TunerTextureFormat.ASTC_8x8);
             }
-            if (r.Usage == TextureUsageKind.Emission || r.Usage == TextureUsageKind.Detail) return result;
+            if (r.Usage == TextureUsageKind.Detail) return result;
             // HDR is preserved until decoded floating-point comparisons are available.
             if (r.CurrentFormat == TunerTextureFormat.BC6H || r.CurrentFormat == TunerTextureFormat.RGBAHalf || r.CurrentFormat == TunerTextureFormat.RGBAFloat || r.CurrentFormat == TunerTextureFormat.RHalf || r.CurrentFormat == TunerTextureFormat.RFloat || r.CurrentFormat == TunerTextureFormat.RGHalf || r.CurrentFormat == TunerTextureFormat.RGFloat) return result;
             if (o != null && o.KeepFormat)
@@ -120,7 +147,10 @@ namespace AvatarTuner.Core
             int max = Math.Max(r.SourceWidth, r.SourceHeight);
             int minimum = category == SemanticCategory.Face || category == SemanticCategory.Eyes ? 1024 :
                 category == SemanticCategory.Hair ? 512 : 256;
+            if (standardLevel == StandardOptimizationLevel.Maximum && !IsDataTexture(r, category)) minimum /= 2;
             int floor = Math.Min(max, minimum);
+            if (settings.MaxDownscaleSteps >= 0)
+                floor = Math.Max(floor, Math.Max(1, max >> settings.MaxDownscaleSteps));
             bool keep = settings.KeepResolution || (o != null && o.KeepResolution);
             int limit = settings.MaxResolution > 0 ? settings.MaxResolution : max;
             if (o != null && o.ForceMaxSize) limit = Math.Min(limit, o.ForcedMaxSize);
@@ -158,7 +188,7 @@ namespace AvatarTuner.Core
             return result;
         }
         public static TexturePlan Select(TexturePlanRequest r, TexturePolicy p, TextureOverride o, TextureSettings s, SemanticCategory category, Func<TextureCandidate, CandidateQuality> evaluate,
-            bool useReductionTarget = false)
+            bool useReductionTarget = false, StandardOptimizationLevel? standardLevel = null)
         {
             if (r == null) throw new ArgumentNullException("r");
             if (p == null) throw new ArgumentNullException("p");
@@ -191,6 +221,8 @@ namespace AvatarTuner.Core
             if (evaluate == null) return plan;
             TextureCandidate best = null;
             CandidateQuality quality = null;
+            CandidateQuality visualQuality = null;
+            var detailRejected = false;
             double targetBytes = 0;
             double bestScore = double.MaxValue;
             if (useReductionTarget)
@@ -202,7 +234,7 @@ namespace AvatarTuner.Core
                 if (s.Format == TunerTextureFormat.Automatic && s.MaxResolution == 0 && (o == null || !o.HasAnyEffect))
                     bestScore = Math.Abs(reportedSource - targetBytes);
             }
-            foreach (var c in Candidates(r, p, o, s, category))
+            foreach (var c in Candidates(r, p, o, s, category, standardLevel))
             {
                 if (c.Bytes >= plan.SourceBytes) continue;
                 double score = c.Bytes;
@@ -215,23 +247,48 @@ namespace AvatarTuner.Core
                 }
                 if (score > bestScore || (best == null && score == bestScore)) continue;
                 var q = evaluate(c);
-                if (q != null && (!Between(q.Ssim, -1, 1) || !Between(q.AlphaCoverageError, 0, 1) ||
-                    !Between(q.EdgeError, 0, 1) || !Between(q.MeanColorError, 0, 1) ||
-                    !Between(q.MaxChannelError, 0, 1) || !Between(q.NormalAngularError, 0, 180))) continue;
-                if (q == null || !q.Available || double.IsNaN(q.Psnr) || double.IsNaN(q.Ssim) || double.IsNaN(q.AlphaCoverageError) || double.IsNaN(q.EdgeError) || double.IsNaN(q.MeanColorError) || double.IsNaN(q.MaxChannelError) || double.IsNaN(q.NormalAngularError) || q.Psnr < s.MinPsnr || q.Ssim < s.MinSsim || q.AlphaCoverageError > 0.02 || q.EdgeError > 0.03 || q.MeanColorError > 0.03 || q.MaxChannelError > 0.25 || q.NormalAngularError > 5) continue;
-                if ((category == SemanticCategory.Masks || r.Usage == TextureUsageKind.DataMask || r.Usage == TextureUsageKind.GreyscaleData) &&
-                    q.MaxChannelError > 0.03) continue;
-                double minPsnr = category == SemanticCategory.Face || category == SemanticCategory.Eyes ? 50 :
-                    category == SemanticCategory.Hair || category == SemanticCategory.Masks ? 48 : s.MinPsnr;
-                double minSsim = category == SemanticCategory.Face || category == SemanticCategory.Eyes ? 0.99 :
-                    category == SemanticCategory.Hair || category == SemanticCategory.Masks ? 0.985 : s.MinSsim;
-                if (q.Psnr < Math.Max(s.MinPsnr, minPsnr) || q.Ssim < Math.Max(s.MinSsim, minSsim)) continue;
+                if (!ValidQuality(q)) continue;
+                var data = IsDataTexture(r, category);
+                var normalMap = r.Usage == TextureUsageKind.NormalMap || r.ImporterTypeIsNormalMap;
+                var maximum = standardLevel == StandardOptimizationLevel.Maximum;
+                var normal = standardLevel == StandardOptimizationLevel.Normal;
+                // Masks shade what is seen, so Normal/Maximum judge them at the same viewing scale as color.
+                var visual = !normalMap && normal ? q.Visual512 ?? q : !normalMap && maximum ? q.Visual256 ?? q : q;
+                // Normal-map channels are not colors: the visible change is how far the lighting direction moves.
+                if (normalMap && (normal || maximum))
+                {
+                    if (q.NormalAngularError > (maximum ? 3.5 : 2)) continue;
+                }
+                else
+                {
+                    // Edge and mean color loss are judged at the tier's viewing scale, like PSNR/SSIM.
+                    if (!ValidQuality(visual) || visual.Psnr < s.MinPsnr || visual.Ssim < s.MinSsim ||
+                        q.AlphaCoverageError > 0.02 || visual.EdgeError > 0.03 || visual.MeanColorError > 0.03 ||
+                        visual.MaxChannelError > 0.25 || q.NormalAngularError > 5) continue;
+                    // Local features are checked at the tier's viewing scale, not by the worst source texel.
+                    var localMinimum = data || standardLevel == StandardOptimizationLevel.Minimum ? 0.9 :
+                        0.8;
+                    if (standardLevel.HasValue && visual.MinLocalSsim < localMinimum) { detailRejected = true; continue; }
+                    if ((category == SemanticCategory.Masks || r.Usage == TextureUsageKind.DataMask || r.Usage == TextureUsageKind.GreyscaleData) &&
+                        visual.MaxChannelError > (maximum ? 0.25 : normal ? 0.12 : 0.03)) continue;
+                    var face = category == SemanticCategory.Face || category == SemanticCategory.Eyes;
+                    double minPsnr = face ? (maximum ? 38 : normal ? 44 : 50) :
+                        category == SemanticCategory.Hair ? (maximum ? 36 : normal ? 43 : 48) :
+                        category == SemanticCategory.Masks && !standardLevel.HasValue ? 48 : s.MinPsnr;
+                    double minSsim = face ? (maximum ? 0.97 : normal ? 0.985 : 0.99) :
+                        category == SemanticCategory.Hair ? (maximum ? 0.96 : normal ? 0.98 : 0.985) :
+                        category == SemanticCategory.Masks && !standardLevel.HasValue ? 0.985 : s.MinSsim;
+                    if (standardLevel.HasValue && data) { minPsnr = Math.Max(minPsnr, maximum ? 40 : normal ? 44 : 48); minSsim = Math.Max(minSsim, maximum ? 0.96 : normal ? 0.975 : 0.985); }
+                    if (visual.Psnr < Math.Max(s.MinPsnr, minPsnr) || visual.Ssim < Math.Max(s.MinSsim, minSsim)) continue;
+                }
                 if (best != null && score == bestScore &&
                     (q.Ssim < quality.Ssim || (q.Ssim == quality.Ssim && q.Psnr <= quality.Psnr))) continue;
                 best = c;
                 bestScore = score;
                 quality = q;
+                visualQuality = visual;
             }
+            if (detailRejected) plan.AddNote("plan.note.localDetailProtected");
             if (best == null)
             {
                 plan.SkipReasonKey = plan.IsExcluded ? "plan.skip.excluded" :
@@ -255,6 +312,9 @@ namespace AvatarTuner.Core
             plan.HasEstimatedPsnr = true;
             plan.EstimatedPsnrDb = quality.Psnr;
             plan.Confidence = QualityConfidence.Medium;
+            if (visualQuality != quality)
+                plan.AddNote("plan.note.visualQuality", standardLevel == StandardOptimizationLevel.Maximum ? "256" : "512",
+                    visualQuality.MinLocalSsim.ToString("0.####", CultureInfo.InvariantCulture));
             plan.AddNote("plan.note.adaptiveAccepted", best.Filter.ToString(), best.CompressionQuality.ToString(CultureInfo.InvariantCulture),
                 double.IsPositiveInfinity(quality.Psnr) ? "∞" : quality.Psnr.ToString("0.##", CultureInfo.InvariantCulture),
                 quality.Ssim.ToString("0.####", CultureInfo.InvariantCulture));
@@ -266,10 +326,25 @@ namespace AvatarTuner.Core
             return !double.IsNaN(value) && !double.IsInfinity(value) && value >= min && value <= max;
         }
 
+        private static bool ValidQuality(CandidateQuality quality)
+        {
+            return quality != null && quality.Available && !double.IsNaN(quality.Psnr) && quality.Psnr >= 0 &&
+                Between(quality.Ssim, -1, 1) && Between(quality.MinLocalSsim, -1, 1) &&
+                Between(quality.AlphaCoverageError, 0, 1) && Between(quality.EdgeError, 0, 1) &&
+                Between(quality.MeanColorError, 0, 1) && Between(quality.MaxChannelError, 0, 1) && Between(quality.NormalAngularError, 0, 180);
+        }
+
+        private static bool IsDataTexture(TexturePlanRequest request, SemanticCategory category)
+        {
+            return category == SemanticCategory.Masks || request.Usage == TextureUsageKind.DataMask ||
+                request.Usage == TextureUsageKind.GreyscaleData || request.Usage == TextureUsageKind.NormalMap || request.ImporterTypeIsNormalMap;
+        }
+
         private static bool ValidSettings(TextureSettings settings)
         {
             return Between(settings.MinPsnr, 0, 200) && Between(settings.MinSsim, 0, 1) &&
                 Between(settings.DesiredReduction, 1, double.MaxValue) && settings.MaxResolution >= 0 &&
+                settings.MaxDownscaleSteps >= -1 && settings.MaxDownscaleSteps <= 30 &&
                 Enum.IsDefined(typeof(OptimizationPlatform), settings.Platform) &&
                 Enum.IsDefined(typeof(OptimizationEffort), settings.Effort);
         }

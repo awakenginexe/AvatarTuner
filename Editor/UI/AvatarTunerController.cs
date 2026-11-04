@@ -368,6 +368,14 @@ namespace AvatarTuner.Editor.UI
             RebuildPlan();
         }
 
+        public void SetStandardLevel(StandardOptimizationLevel level)
+        {
+            if (!Enum.IsDefined(typeof(StandardOptimizationLevel), level) || Settings.StandardLevel == level) return;
+            Settings.StandardLevel = level;
+            SaveSettings();
+            RebuildPlan();
+        }
+
         public bool EvaluateRecommendations(Action<float, string> progress, Func<bool> cancelled)
         {
             if (Report == null || !CompatibilityAllows) return false;
@@ -389,7 +397,8 @@ namespace AvatarTuner.Editor.UI
                     TextureOverride ovr;
                     overrides.TryGetValue(entry.Guid, out ovr);
                     candidateCount += AdaptivePlanner.Candidates(TexturePlanBuilder.BuildRequest(entry), PresetCatalog.GetPolicy(OptimizationPreset.Balanced),
-                        ovr, effective.Settings, category).Count;
+                        ovr, effective.Settings, category,
+                        settings.Mode == OptimizationMode.Standard ? (StandardOptimizationLevel?)settings.StandardLevel : null).Count;
                 }
                 using (var evaluator = new CandidateEvaluator(_candidateCache, progress, cancelled, candidateCount))
                     Plan = TexturePlanBuilder.BuildAdaptive(Report, PresetCatalog.GetPolicy(OptimizationPreset.Balanced), overrides, settings,

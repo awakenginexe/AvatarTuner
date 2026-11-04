@@ -150,7 +150,8 @@ namespace AvatarTuner.Core
             }
 
             evidence.ShaderIndicatesNormal = importerTypeIsNormalMap || ContainsAny(prop, NormalNameTokens);
-            evidence.ShaderIndicatesMask = ContainsAny(prop, MaskNameTokens);
+            // lilToon/Poiyomi masks end in "Mask" without an underscore (_MatCapBlendMask, _ShadowBorderMask).
+            evidence.ShaderIndicatesMask = ContainsAny(prop, MaskNameTokens) || prop.EndsWith("mask", StringComparison.Ordinal);
             evidence.ShaderIndicatesAlpha = DetectsAlphaUsage(shader, prop, sourceHasAlpha, alphaIsTransparency);
             evidence.NameIndicatesDetail = ContainsAny(prop, DetailNameTokens) || ContainsAny(asset, DetailNameTokens);
             evidence.NameIndicatesFace = ContainsAny(prop, FaceNameTokens) || ContainsAny(asset, FaceNameTokens);
@@ -401,7 +402,8 @@ namespace AvatarTuner.Core
                 }
             }
 
-            return prop == "_main" || prop == "_base" || prop == "_diff" || prop == "_col";
+            return prop == "_main" || prop == "_base" || prop == "_diff" || prop == "_col" ||
+                prop == "_main2ndtex" || prop == "_main3rdtex"; // lilToon color layers
         }
 
         private static bool ContainsAny(string haystack, string[] needles)

@@ -12,6 +12,9 @@ namespace AvatarTuner.Editor.ViewModels
     /// <summary>The shared before/after/savings numbers for one avatar.</summary>
     public sealed class MemoryNumbers
     {
+        public long SourceDiskBytes, OutputDiskBytes;
+        public bool HasSourceDisk, HasOutputDisk;
+
         /// <summary>Known source GPU memory subtotal; HasSource indicates completeness.</summary>
         public long SourceBytes;
         public MemoryReportBasis Basis;
@@ -112,21 +115,32 @@ namespace AvatarTuner.Editor.ViewModels
 
             var seenGuids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            numbers.HasSourceDisk = true;
+            numbers.HasOutputDisk = generation != null;
             var allImported = generation != null && generation.Generated.Count > 0;
             var matchedGenerated = 0;
             foreach (var item in plan.Textures)
             {
-                if (item == null) { numbers.UnknownSourceCount++; numbers.UnknownOutputCount++; continue; }
+                if (item == null) { numbers.UnknownSourceCount++; numbers.UnknownOutputCount++; numbers.HasSourceDisk = numbers.HasOutputDisk = false; continue; }
                 if ((!string.IsNullOrEmpty(item.TextureGuid) && !seenGuids.Add(item.TextureGuid)) ||
                     (!string.IsNullOrEmpty(item.TexturePath) && !seenPaths.Add(item.TexturePath))) continue;
                 var decision = item.Plan;
-                if (decision == null) { numbers.UnknownSourceCount++; numbers.UnknownOutputCount++; continue; }
+                if (decision == null) { numbers.UnknownSourceCount++; numbers.UnknownOutputCount++; numbers.HasSourceDisk = numbers.HasOutputDisk = false; continue; }
                 bool sourceKnown = decision.SourceBytesKnown || decision.SourceBytes > 0;
                 if (sourceKnown) numbers.SourceBytes += decision.SourceBytes;
                 else numbers.UnknownSourceCount++;
                 GeneratedTextureAsset asset = null;
                 if (generation != null && !string.IsNullOrEmpty(item.TextureGuid)) byGuid.TryGetValue(item.TextureGuid, out asset);
                 if (generation != null && asset == null && !string.IsNullOrEmpty(item.TexturePath)) byPath.TryGetValue(item.TexturePath, out asset);
+                var source = string.IsNullOrEmpty(item.TextureGuid) ? null : report.FindTexture(item.TextureGuid);
+                if (source == null && !string.IsNullOrEmpty(item.TexturePath))
+                    source = report.Textures.Find(entry => string.Equals(entry.Path, item.TexturePath, StringComparison.OrdinalIgnoreCase));
+                var sourceDisk = source == null ? 0 : source.SourceFileSizeBytes;
+                if (sourceDisk > 0) numbers.SourceDiskBytes += sourceDisk;
+                else numbers.HasSourceDisk = false;
+                var outputDisk = asset == null ? sourceDisk : asset.GeneratedFileSizeBytes;
+                if (outputDisk > 0) numbers.OutputDiskBytes += outputDisk;
+                else numbers.HasOutputDisk = false;
                 long output;
                 bool outputKnown;
                 if (asset != null)

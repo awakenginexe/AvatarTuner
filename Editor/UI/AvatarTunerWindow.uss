@@ -349,3 +349,72 @@
 .at-footer-link {
     font-size: 10px;
 }
+
+/* Optimization Workspace (Master-Detail Split Layout) */
+.at-workspace-root {
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+.at-workspace-header {
+    padding: 8px 10px;
+    border-bottom-width: 1px;
+    flex-shrink: 0;
+}
+
+.at-workspace-toolbar {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+
+.at-workspace-drawer {
+    padding: 10px;
+    border-bottom-width: 1px;
+    margin-bottom: 4px;
+}
+
+.at-workspace-body {
+    flex-direction: row;
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+.at-workspace-master {
+    width: 48%;
+    min-width: 320px;
+    border-right-width: 1px;
+    flex-shrink: 0;
+}
+
+.at-workspace-detail {
+    flex-grow: 1;
+    min-width: 340px;
+}
+
+.at-workspace-card {
+    padding: 6px 8px;
+    margin-bottom: 3px;
+    border-radius: 5px;
+    border-width: 1px;
+    border-left-width: 3px;
+    flex-direction: column;
+}
+
+.at-workspace-thumb {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    margin-right: 8px;
+    flex-shrink: 0;
+    align-self: center;
+}
+
+.at-workspace-pill {
+    padding: 2px 7px;
+    border-radius: 8px;
+    font-size: 10px;
+    margin-right: 4px;
+    -unity-text-align: middle-center;
+}
