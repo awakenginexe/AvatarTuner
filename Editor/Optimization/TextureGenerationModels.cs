@@ -27,6 +27,13 @@ namespace AvatarTuner.Editor.Optimization
 
         /// <summary>Planned GPU memory of the generated texture.</summary>
         public long PlannedTargetBytes;
+        public int ImportedWidth;
+        public int ImportedHeight;
+        public string ImportedFormat;
+        public bool ImportedMipmaps;
+        public int ImportedMipCount;
+        public bool ImportedBytesKnown;
+        public long ImportedBytes;
     }
 
     /// <summary>Outcome of a generation run.</summary>

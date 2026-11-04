@@ -110,9 +110,8 @@ namespace AvatarTuner.StandaloneTests
             var numbers = MemoryReportModel.Build(MakeReport(), plan, generation);
 
             Assert.IsTrue(numbers.HasOutput, "output is known");
-            Assert.IsTrue(numbers.OutputFromGeneratedOutputs,
-                "output memory is derived from really generated files");
-            Assert.IsFalse(numbers.SavingsArePotential, "so the saving is realized, not potential");
+            Assert.IsFalse(numbers.OutputFromGeneratedOutputs, "planned bytes are not imported facts");
+            Assert.IsTrue(numbers.SavingsArePotential, "planned bytes remain estimates");
             Assert.AreEqual(1, numbers.OptimizedCount, "one texture received a generated output");
             Assert.AreEqual(0, numbers.SkippedCount, "the run reports its own skip count");
         }
@@ -146,6 +145,7 @@ namespace AvatarTuner.StandaloneTests
             {
                 SourceBytesTotal = 249L * MiB,
                 OutputBytesTotal = 43L * MiB,
+                HasSource = true, HasOutput = true, Basis = MemoryReportBasis.PlannedEstimate,
                 OptimizedCount = 34,
                 SkippedCount = 12,
                 ExcludedCount = 3,
@@ -156,8 +156,7 @@ namespace AvatarTuner.StandaloneTests
             Assert.IsTrue(numbers.HasSource, "recorded source memory is restored");
             Assert.AreEqual(249L * MiB, numbers.SourceBytes, "source matches the manifest");
             Assert.AreEqual(43L * MiB, numbers.OutputBytes, "output matches the manifest");
-            Assert.IsTrue(numbers.OutputFromGeneratedOutputs,
-                "recorded numbers describe real generated outputs");
+            Assert.IsFalse(numbers.OutputFromGeneratedOutputs, "legacy estimates remain estimates");
             Assert.AreEqual(34, numbers.OptimizedCount, "counts are restored");
             Assert.AreEqual(12, numbers.SkippedCount, "counts are restored");
             Assert.AreEqual(3, numbers.ExcludedCount, "counts are restored");
@@ -197,6 +196,42 @@ namespace AvatarTuner.StandaloneTests
             Assert.IsFalse(MemoryReportModel.Build(MakeReport(), null, null).HasSource,
                 "a report without a plan has no memory arithmetic");
             Assert.IsFalse(MemoryReportModel.FormatTrio(null).HasAfter, "and no trio is shown");
+        }
+
+        [Test("imported bytes, missing values, and shared textures are accounted honestly")]
+        public static void ImportedAndUnknownAccounting()
+        {
+            var plan = MakePlan();
+            plan.Textures.Add(plan.Textures[0]);
+            var generation = new TextureGenerationResult();
+            generation.Generated.Add(new GeneratedTextureAsset { SourceGuid = "tex-a", ImportedBytesKnown = true, ImportedBytes = MiB, PlannedTargetBytes = 3 * MiB });
+            var numbers = MemoryReportModel.Build(MakeReport(), plan, generation);
+            Assert.AreEqual(12 * MiB, numbers.SourceBytes, "shared source counted once");
+            Assert.AreEqual(5 * MiB, numbers.OutputBytes, "imported and unchanged bytes counted once");
+            Assert.AreEqual(MemoryReportBasis.ImportedResult, numbers.Basis, "imported basis");
+            plan.Textures[1].Plan.SourceBytes = 0;
+            numbers = MemoryReportModel.Build(MakeReport(), plan, generation);
+            Assert.IsFalse(numbers.HasSource, "unknown source is not a complete total");
+            Assert.IsFalse(numbers.HasOutput, "unknown unchanged output is not a complete total");
+            Assert.AreEqual(1, numbers.UnknownSourceCount, "unknown source count");
+            Assert.AreEqual(1, numbers.UnknownOutputCount, "unknown output count");
+            Assert.AreEqual(MiB, numbers.OutputBytes, "known subtotal survives");
+        }
+
+        [Test("manifest preserves imported facts and migrates legacy totals as estimates")]
+        public static void MemoryManifestRoundTrip()
+        {
+            var asset = new GeneratedTextureAsset { GeneratedPath = "Assets/generated.png", ImportedWidth = 128, ImportedHeight = 64, ImportedFormat = "BC7", ImportedMipmaps = true, ImportedMipCount = 8, ImportedBytesKnown = true, ImportedBytes = 11008 };
+            var state = AvatarTuner.Editor.Tracking.ManifestStateBuilder.FromGeneratedAsset(asset);
+            var copy = GeneratedAssetState.FromDictionary(state.ToDictionary());
+            Assert.AreEqual(11008L, copy.ImportedBytes, "imported bytes survive");
+            Assert.AreEqual("BC7", copy.ImportedFormat, "format survives");
+            Assert.IsTrue(copy.ImportedBytesKnown && copy.ImportedMipmaps, "facts survive");
+            var legacy = AvatarOptimizationState.FromDictionary(new Dictionary<string, object> { { "sourceBytesTotal", 100L }, { "outputBytesTotal", 50L } });
+            var numbers = MemoryReportModel.FromRecordedState(legacy);
+            Assert.IsFalse(numbers.HasSource || numbers.HasOutput, "legacy completeness is unknown");
+            Assert.AreEqual(100L, numbers.SourceBytes, "legacy subtotal remains available");
+            Assert.AreEqual(MemoryReportBasis.PlannedEstimate, numbers.Basis, "legacy totals are estimates");
         }
 
         // ===================================================================== helpers

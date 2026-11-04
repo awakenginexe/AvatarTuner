@@ -26,6 +26,9 @@ namespace AvatarTuner.Editor.Tracking
         // ---- recorded metrics of this run (see AvatarOptimizationState)
         public long SourceBytesTotal;
         public long OutputBytesTotal;
+        public bool HasSource, HasOutput;
+        public int UnknownSourceCount, UnknownOutputCount;
+        public MemoryReportBasis Basis;
         public int OptimizedCount;
         public int SkippedCount;
         public int ExcludedCount;
@@ -70,6 +73,11 @@ namespace AvatarTuner.Editor.Tracking
             state.PresetId = info.PresetId ?? string.Empty;
             state.SourceBytesTotal = info.SourceBytesTotal;
             state.OutputBytesTotal = info.OutputBytesTotal;
+            state.HasSource = info.HasSource;
+            state.HasOutput = info.HasOutput;
+            state.UnknownSourceCount = info.UnknownSourceCount;
+            state.UnknownOutputCount = info.UnknownOutputCount;
+            state.Basis = info.Basis;
             state.OptimizedCount = info.OptimizedCount;
             state.SkippedCount = info.SkippedCount;
             state.ExcludedCount = info.ExcludedCount;
@@ -127,6 +135,13 @@ namespace AvatarTuner.Editor.Tracking
             state.Path = asset.GeneratedPath;
             state.Kind = "texture";
             state.TargetBytes = asset.PlannedTargetBytes;
+            state.ImportedWidth = asset.ImportedWidth;
+            state.ImportedHeight = asset.ImportedHeight;
+            state.ImportedFormat = asset.ImportedFormat;
+            state.ImportedMipmaps = asset.ImportedMipmaps;
+            state.ImportedMipCount = asset.ImportedMipCount;
+            state.ImportedBytesKnown = asset.ImportedBytesKnown;
+            state.ImportedBytes = asset.ImportedBytes;
             state.ContentHash = asset.ContentHash ?? string.Empty;
             state.PlanHash = asset.PlanHashToken ?? string.Empty;
             if (!string.IsNullOrEmpty(asset.SourceGuid))

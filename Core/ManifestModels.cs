@@ -4,6 +4,8 @@ using System.Globalization;
 
 namespace AvatarTuner.Core
 {
+    public enum MemoryReportBasis { PlannedEstimate, ImportedResult, VRChatVerifiedResult }
+
     /// <summary>The six states an avatar's optimization can be in.</summary>
     public enum OptimizationStatus
     {
@@ -118,6 +120,10 @@ namespace AvatarTuner.Core
 
         /// <summary>Planned GPU memory of this output (0 when not a texture).</summary>
         public long TargetBytes;
+        public int ImportedWidth, ImportedHeight, ImportedMipCount;
+        public string ImportedFormat;
+        public bool ImportedMipmaps, ImportedBytesKnown;
+        public long ImportedBytes;
 
         /// <summary>Source GUIDs this file was derived from. Drives partial invalidation.</summary>
         public readonly List<string> DerivedFromGuids = new List<string>();
@@ -131,6 +137,13 @@ namespace AvatarTuner.Core
             dict["contentHash"] = ContentHash ?? string.Empty;
             dict["planHash"] = PlanHash ?? string.Empty;
             dict["targetBytes"] = TargetBytes;
+            dict["importedWidth"] = (long)ImportedWidth;
+            dict["importedHeight"] = (long)ImportedHeight;
+            dict["importedFormat"] = ImportedFormat ?? string.Empty;
+            dict["importedMipmaps"] = ImportedMipmaps;
+            dict["importedMipCount"] = (long)ImportedMipCount;
+            dict["importedBytesKnown"] = ImportedBytesKnown;
+            dict["importedBytes"] = ImportedBytes;
             dict["derivedFrom"] = new List<object>(DerivedFromGuids.ToArray());
             return dict;
         }
@@ -149,6 +162,13 @@ namespace AvatarTuner.Core
             state.ContentHash = MiniJson.GetString(dict, "contentHash", string.Empty);
             state.PlanHash = MiniJson.GetString(dict, "planHash", string.Empty);
             state.TargetBytes = MiniJson.GetLong(dict, "targetBytes", 0);
+            state.ImportedWidth = (int)MiniJson.GetLong(dict, "importedWidth", 0);
+            state.ImportedHeight = (int)MiniJson.GetLong(dict, "importedHeight", 0);
+            state.ImportedFormat = MiniJson.GetString(dict, "importedFormat", string.Empty);
+            state.ImportedMipmaps = MiniJson.GetBool(dict, "importedMipmaps", false);
+            state.ImportedMipCount = (int)MiniJson.GetLong(dict, "importedMipCount", 0);
+            state.ImportedBytesKnown = MiniJson.GetBool(dict, "importedBytesKnown", false);
+            state.ImportedBytes = MiniJson.GetLong(dict, "importedBytes", 0);
 
             var derived = MiniJson.GetList(dict, "derivedFrom");
             if (derived != null)
@@ -322,6 +342,9 @@ namespace AvatarTuner.Core
 
         /// <summary>GPU texture memory of the optimized output at the last run.</summary>
         public long OutputBytesTotal;
+        public bool HasSource, HasOutput;
+        public int UnknownSourceCount, UnknownOutputCount;
+        public MemoryReportBasis Basis;
 
         /// <summary>Textures that received a generated output.</summary>
         public int OptimizedCount;
@@ -432,6 +455,11 @@ namespace AvatarTuner.Core
             dict["lastAttemptUtc"] = LastAttemptUtc ?? string.Empty;
             dict["sourceBytesTotal"] = SourceBytesTotal;
             dict["outputBytesTotal"] = OutputBytesTotal;
+            dict["hasSourceMemory"] = HasSource;
+            dict["hasOutputMemory"] = HasOutput;
+            dict["unknownSourceCount"] = (long)UnknownSourceCount;
+            dict["unknownOutputCount"] = (long)UnknownOutputCount;
+            dict["memoryBasis"] = Basis.ToString();
             dict["optimizedCount"] = (long)OptimizedCount;
             dict["skippedCount"] = (long)SkippedCount;
             dict["excludedCount"] = (long)ExcludedCount;
@@ -506,6 +534,13 @@ namespace AvatarTuner.Core
             state.LastAttemptUtc = MiniJson.GetString(dict, "lastAttemptUtc", string.Empty);
             state.SourceBytesTotal = MiniJson.GetLong(dict, "sourceBytesTotal", 0);
             state.OutputBytesTotal = MiniJson.GetLong(dict, "outputBytesTotal", 0);
+            state.HasSource = MiniJson.GetBool(dict, "hasSourceMemory", false);
+            state.HasOutput = MiniJson.GetBool(dict, "hasOutputMemory", false);
+            state.UnknownSourceCount = (int)MiniJson.GetLong(dict, "unknownSourceCount", state.SourceBytesTotal > 0 && !dict.ContainsKey("hasSourceMemory") ? 1 : 0);
+            state.UnknownOutputCount = (int)MiniJson.GetLong(dict, "unknownOutputCount", state.OutputBytesTotal > 0 && !dict.ContainsKey("hasOutputMemory") ? 1 : 0);
+            MemoryReportBasis basis;
+            state.Basis = Enum.TryParse(MiniJson.GetString(dict, "memoryBasis", "PlannedEstimate"), out basis) &&
+                Enum.IsDefined(typeof(MemoryReportBasis), basis) ? basis : MemoryReportBasis.PlannedEstimate;
             state.OptimizedCount = (int)MiniJson.GetLong(dict, "optimizedCount", 0);
             state.SkippedCount = (int)MiniJson.GetLong(dict, "skippedCount", 0);
             state.ExcludedCount = (int)MiniJson.GetLong(dict, "excludedCount", 0);

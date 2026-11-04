@@ -1,15 +1,4 @@
-// AvatarTuner v1.0.0 — shared memory numbers (Unity free).
-//
-// One source of truth for every "before / after / savings" number the UI shows, so the
-// Overview dashboard, the Optimization Results page and the exported report can never
-// disagree. Honesty rules encoded here:
-//   - Source memory is the scanned source textures' GPU memory (computed, not measured).
-//   - Output memory is computed from the really generated outputs when a run exists;
-//     before a run it is the plan's estimate and is labelled as potential.
-//   - Savings are always Source - Output of the SAME texture set, so the displayed
-//     before/after/saving trio is internally consistent even after rounding.
-//   - Generated outputs are standalone files; nothing is applied to the avatar in the
-//     scene, so there is no "active avatar" measurement to report - ever.
+// Shared GPU texture-memory accounting. Imported properties are estimates of GPU allocation.
 
 using System;
 using System.Collections.Generic;
@@ -23,10 +12,13 @@ namespace AvatarTuner.Editor.ViewModels
     /// <summary>The shared before/after/savings numbers for one avatar.</summary>
     public sealed class MemoryNumbers
     {
-        /// <summary>GPU texture memory of the source textures. 0 when unknown.</summary>
+        /// <summary>Known source GPU memory subtotal; HasSource indicates completeness.</summary>
         public long SourceBytes;
+        public MemoryReportBasis Basis;
+        public int UnknownSourceCount;
+        public int UnknownOutputCount;
 
-        /// <summary>GPU texture memory of the optimized output. 0 when unknown.</summary>
+        /// <summary>Known output GPU memory subtotal; HasOutput indicates completeness.</summary>
         public long OutputBytes;
 
         /// <summary>SourceBytes - OutputBytes (raw arithmetic on the shared totals).</summary>
@@ -42,14 +34,12 @@ namespace AvatarTuner.Editor.ViewModels
         public bool HasOutput;
 
         /// <summary>
-        /// True when OutputBytes was derived from really generated output files. False
-        /// means it is the plan's estimate and must be labelled as computed/potential.
+        /// True when generated outputs have imported byte estimates and the output total is complete.
         /// </summary>
         public bool OutputFromGeneratedOutputs;
 
         /// <summary>
-        /// True when the saving is only potential (nothing generated yet). A realized
-        /// saving is only ever claimed alongside generated outputs.
+        /// True when the output uses planned estimates.
         /// </summary>
         public bool SavingsArePotential
         {
@@ -109,35 +99,58 @@ namespace AvatarTuner.Editor.ViewModels
                 return numbers;
             }
 
-            numbers.HasSource = true;
-            numbers.SourceBytes = plan.SourceBytesTotal;
+            var byGuid = new Dictionary<string, GeneratedTextureAsset>(StringComparer.OrdinalIgnoreCase);
+            var byPath = new Dictionary<string, GeneratedTextureAsset>(StringComparer.OrdinalIgnoreCase);
+            if (generation != null)
+                foreach (var asset in generation.Generated)
+                {
+                    if (asset == null) continue;
+                    if (!string.IsNullOrEmpty(asset.SourceGuid)) byGuid[asset.SourceGuid] = asset;
+                    if (!string.IsNullOrEmpty(asset.SourcePath)) byPath[asset.SourcePath] = asset;
+                }
 
-            if (generation == null)
+            var seenGuids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var allImported = generation != null && generation.Generated.Count > 0;
+            var matchedGenerated = 0;
+            foreach (var item in plan.Textures)
             {
-                // No run yet: the plan's own estimate, explicitly potential.
-                numbers.HasOutput = true;
-                numbers.OutputFromGeneratedOutputs = false;
-                numbers.OutputBytes = plan.TargetBytesTotal;
-                numbers.OptimizedCount = plan.ChangedCount;
-                numbers.SkippedCount = 0;
-                numbers.ExcludedCount = plan.ExcludedCount;
-                numbers.ReviewCount = TextureRows.CountNeedingReview(plan);
+                if (item == null) { numbers.UnknownSourceCount++; numbers.UnknownOutputCount++; continue; }
+                if ((!string.IsNullOrEmpty(item.TextureGuid) && !seenGuids.Add(item.TextureGuid)) ||
+                    (!string.IsNullOrEmpty(item.TexturePath) && !seenPaths.Add(item.TexturePath))) continue;
+                var decision = item.Plan;
+                if (decision == null) { numbers.UnknownSourceCount++; numbers.UnknownOutputCount++; continue; }
+                bool sourceKnown = decision.SourceBytes > 0;
+                if (sourceKnown) numbers.SourceBytes += decision.SourceBytes;
+                else numbers.UnknownSourceCount++;
+                GeneratedTextureAsset asset = null;
+                if (generation != null && !string.IsNullOrEmpty(item.TextureGuid)) byGuid.TryGetValue(item.TextureGuid, out asset);
+                if (generation != null && asset == null && !string.IsNullOrEmpty(item.TexturePath)) byPath.TryGetValue(item.TexturePath, out asset);
+                long output;
+                if (asset != null)
+                {
+                    matchedGenerated++;
+                    if (asset.ImportedBytesKnown && asset.ImportedBytes > 0) output = asset.ImportedBytes;
+                    else { output = asset.PlannedTargetBytes; allImported = false; }
+                }
+                else output = generation == null ? decision.TargetBytes : decision.SourceBytes;
+                if (output > 0) numbers.OutputBytes += output;
+                else numbers.UnknownOutputCount++;
             }
-            else
+            numbers.HasSource = numbers.UnknownSourceCount == 0;
+            numbers.HasOutput = numbers.UnknownOutputCount == 0;
+            allImported = allImported && generation != null && matchedGenerated == generation.Generated.Count;
+            numbers.Basis = allImported ? MemoryReportBasis.ImportedResult : MemoryReportBasis.PlannedEstimate;
+            numbers.OutputFromGeneratedOutputs = allImported && numbers.HasOutput;
+            numbers.OptimizedCount = generation == null ? plan.ChangedCount : generation.Generated.Count;
+            numbers.SkippedCount = generation == null ? 0 : generation.SkippedCount;
+            numbers.ExcludedCount = plan.ExcludedCount;
+            numbers.ReviewCount = TextureRows.CountNeedingReview(plan);
+            if (numbers.HasSource && numbers.HasOutput)
             {
-                // A run happened: output memory comes from what was really written.
-                // Textures without a generated output stay at their source memory.
-                numbers.HasOutput = true;
-                numbers.OutputFromGeneratedOutputs = true;
-                numbers.OutputBytes = OutputBytesFromGenerated(plan, generation);
-                numbers.OptimizedCount = generation.Generated.Count;
-                numbers.SkippedCount = generation.SkippedCount;
-                numbers.ExcludedCount = plan.ExcludedCount;
-                numbers.ReviewCount = TextureRows.CountNeedingReview(plan);
+                numbers.SavingBytes = numbers.SourceBytes - numbers.OutputBytes;
+                numbers.SavingPercent = SavingPercentOf(numbers.SourceBytes, numbers.OutputBytes);
             }
-
-            numbers.SavingBytes = numbers.SourceBytes - numbers.OutputBytes;
-            numbers.SavingPercent = SavingPercentOf(numbers.SourceBytes, numbers.OutputBytes);
             return numbers;
         }
 
@@ -149,18 +162,20 @@ namespace AvatarTuner.Editor.ViewModels
         public static MemoryNumbers FromRecordedState(AvatarOptimizationState recorded)
         {
             var numbers = new MemoryNumbers();
-            if (recorded == null || (recorded.SourceBytesTotal <= 0 && recorded.OutputBytesTotal <= 0))
-            {
-                return numbers;
-            }
-
-            numbers.HasSource = true;
+            if (recorded == null) return numbers;
+            numbers.HasSource = recorded.HasSource;
             numbers.SourceBytes = recorded.SourceBytesTotal;
-            numbers.HasOutput = true;
-            numbers.OutputFromGeneratedOutputs = true;
+            numbers.HasOutput = recorded.HasOutput;
             numbers.OutputBytes = recorded.OutputBytesTotal;
-            numbers.SavingBytes = numbers.SourceBytes - numbers.OutputBytes;
-            numbers.SavingPercent = SavingPercentOf(numbers.SourceBytes, numbers.OutputBytes);
+            numbers.UnknownSourceCount = recorded.UnknownSourceCount;
+            numbers.UnknownOutputCount = recorded.UnknownOutputCount;
+            numbers.Basis = recorded.Basis;
+            numbers.OutputFromGeneratedOutputs = recorded.Basis != MemoryReportBasis.PlannedEstimate && recorded.HasOutput;
+            if (numbers.HasSource && numbers.HasOutput)
+            {
+                numbers.SavingBytes = numbers.SourceBytes - numbers.OutputBytes;
+                numbers.SavingPercent = SavingPercentOf(numbers.SourceBytes, numbers.OutputBytes);
+            }
             numbers.OptimizedCount = recorded.OptimizedCount;
             numbers.SkippedCount = recorded.SkippedCount;
             numbers.ExcludedCount = recorded.ExcludedCount;
@@ -252,46 +267,5 @@ namespace AvatarTuner.Editor.ViewModels
             return (sourceBytes - outputBytes) * 100.0 / sourceBytes;
         }
 
-        /// <summary>
-        /// Output memory from really generated outputs: generated textures at their
-        /// planned target memory, every other planned texture at its source memory
-        /// (skipped, excluded or unchanged textures really are still at source size).
-        /// </summary>
-        internal static long OutputBytesFromGenerated(
-            TextureOptimizationPlan plan,
-            TextureGenerationResult generation)
-        {
-            var generatedByGuid = new Dictionary<string, GeneratedTextureAsset>(StringComparer.OrdinalIgnoreCase);
-            for (var i = 0; i < generation.Generated.Count; i++)
-            {
-                var asset = generation.Generated[i];
-                if (!string.IsNullOrEmpty(asset.SourceGuid))
-                {
-                    generatedByGuid[asset.SourceGuid] = asset;
-                }
-            }
-
-            long total = 0;
-            for (var i = 0; i < plan.Textures.Count; i++)
-            {
-                var planned = plan.Textures[i];
-                if (planned.Plan == null)
-                {
-                    continue;
-                }
-
-                GeneratedTextureAsset asset;
-                if (generatedByGuid.TryGetValue(planned.TextureGuid ?? string.Empty, out asset))
-                {
-                    total += asset.PlannedTargetBytes;
-                }
-                else
-                {
-                    total += planned.Plan.SourceBytes;
-                }
-            }
-
-            return total;
-        }
     }
 }
