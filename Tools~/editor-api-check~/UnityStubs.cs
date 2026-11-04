@@ -714,8 +714,7 @@ namespace UnityEngine.UIElements
     {
         Vertical = 0,
         Horizontal = 1,
-        VerticalAndHorizontal = 2,
-        HorizontalAndVertical = 3
+        VerticalAndHorizontal = 2
     }
 
     public class ScrollView : VisualElement

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace AvatarTuner.StandaloneTests
 {
@@ -18,6 +19,22 @@ namespace AvatarTuner.StandaloneTests
     {
         /// <summary>IMGUI-only APIs that must not appear in the UI Toolkit Editor sources.</summary>
         private static readonly string[] BannedImguiCalls = { ".Use()" };
+
+        [Test("scroll view modes match the Unity 2022.3 API even if stubs drift")]
+        public static void ScrollViewModesMatchUnity2022()
+        {
+            var modes = new HashSet<string>(StringComparer.Ordinal) { "Vertical", "Horizontal", "VerticalAndHorizontal" };
+            foreach (var file in EditorUiSources())
+                foreach (Match match in Regex.Matches(File.ReadAllText(file), @"\bScrollViewMode\.([A-Za-z_][A-Za-z0-9_]*)"))
+                    Assert.IsTrue(modes.Contains(match.Groups[1].Value), Path.GetFileName(file) + " uses unsupported " + match.Value);
+
+            var stubs = File.ReadAllText(Path.Combine(PackageLayout.Root, "Tools~", "editor-api-check~", "UnityStubs.cs"));
+            var body = Regex.Match(stubs, @"enum\s+ScrollViewMode\s*\{([^}]+)\}").Groups[1].Value;
+            var declarations = body.Split(',');
+            Assert.AreEqual(3, declarations.Length, "the stub must expose exactly the three documented modes");
+            foreach (var declaration in declarations)
+                Assert.IsTrue(modes.Contains(declaration.Split('=')[0].Trim()), "stub must not invent enum members");
+        }
 
         private static List<string> EditorUiSources()
         {

@@ -8,6 +8,8 @@ extracted from the matching section below.
 
 ### Added and changed
 
+- Fixed the workspace preview's Unity 2022.3 scroll-mode enum so importing the Editor assembly does not fail with CS0117; the offline API stub and regression guard now reject the invalid alias.
+
 - Quick and Advanced workspace with adaptive candidate evaluation, texture inventory, inherited Global, Category and Custom settings, and selected-texture preview.
 - Classifies textures using their usage and reports the evidence; users can correct categories. Shared textures are counted once, and unknown memory remains explicitly incomplete.
 - Chooses the smallest candidate meeting quality constraints; the memory ratio is a goal and may not be reached. Standard uses Unity Mitchell resizing; Best Quality also compares Unity Bilinear and, for PNG/JPEG, Area, Lanczos3 and Mitchell. Native importer compression quality is 50 or 100 respectively.

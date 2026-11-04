@@ -402,7 +402,7 @@ namespace AvatarTuner.Editor.UI
             if (preview.Original == null || preview.Optimized == null) { parent.Add(Text(T("previewUnavailable"))); return; }
             var slider = new Slider(T("zoom"), 0.25f, 4f) { value = zoom };
             slider.RegisterValueChangedCallback(e => { zoom = e.newValue; Refresh(); }); parent.Add(slider);
-            var scroll = new ScrollView(ScrollViewMode.HorizontalAndVertical);
+            var scroll = new ScrollView(ScrollViewMode.VerticalAndHorizontal);
             scroll.style.height = 300;
             var row = Row(); row.style.flexWrap = Wrap.NoWrap;
             AddPreviewImage(row, "original", preview.Original, preview.Original.width, preview.Original.height);
