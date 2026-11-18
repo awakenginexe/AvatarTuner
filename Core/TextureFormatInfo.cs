@@ -53,7 +53,10 @@ namespace AvatarTuner.Core
         Unknown,
         ASTC_4x4,
         ASTC_6x6,
-        ASTC_8x8
+        ASTC_8x8,
+        ASTC_5x5,
+        ASTC_10x10,
+        ASTC_12x12
     }
 
     /// <summary>
@@ -62,12 +65,30 @@ namespace AvatarTuner.Core
     /// </summary>
     public static class TextureFormatInfo
     {
+        public static readonly System.Collections.ObjectModel.ReadOnlyCollection<TunerTextureFormat> AstcFormats =
+            Array.AsReadOnly(new[] { TunerTextureFormat.ASTC_4x4, TunerTextureFormat.ASTC_5x5, TunerTextureFormat.ASTC_6x6,
+                TunerTextureFormat.ASTC_8x8, TunerTextureFormat.ASTC_10x10, TunerTextureFormat.ASTC_12x12 });
+
+        public static int BlockWidth(TunerTextureFormat format)
+        {
+            switch (format)
+            {
+                case TunerTextureFormat.ASTC_5x5: return 5;
+                case TunerTextureFormat.ASTC_6x6: return 6;
+                case TunerTextureFormat.ASTC_8x8: return 8;
+                case TunerTextureFormat.ASTC_10x10: return 10;
+                case TunerTextureFormat.ASTC_12x12: return 12;
+                default: return IsBlockCompressed(format) ? 4 : 1;
+            }
+        }
+
         /// <summary>
         /// Bytes consumed by one texel block for block-compressed formats, or 0 when the
         /// format is not block compressed.
         /// </summary>
         public static int BlockBytes(TunerTextureFormat format)
         {
+            if (AstcFormats.Contains(format)) return 16;
             switch (format)
             {
                 case TunerTextureFormat.BC1:
@@ -78,9 +99,6 @@ namespace AvatarTuner.Core
                 case TunerTextureFormat.BC5:
                 case TunerTextureFormat.BC6H:
                 case TunerTextureFormat.BC7:
-                case TunerTextureFormat.ASTC_4x4:
-                case TunerTextureFormat.ASTC_6x6:
-                case TunerTextureFormat.ASTC_8x8:
                 case TunerTextureFormat.ETC2_RGBA8:
                     return 16;
                 default:
@@ -104,7 +122,7 @@ namespace AvatarTuner.Core
             var blockBytes = BlockBytes(format);
             if (blockBytes > 0)
             {
-                var blockWidth = format == TunerTextureFormat.ASTC_6x6 ? 6 : format == TunerTextureFormat.ASTC_8x8 ? 8 : 4;
+                var blockWidth = BlockWidth(format);
                 return blockBytes / (double)(blockWidth * blockWidth);
             }
 
@@ -138,13 +156,11 @@ namespace AvatarTuner.Core
         /// <summary>True when the format is representable without loss on a PC build target.</summary>
         public static bool IsSupportedOnPc(TunerTextureFormat format)
         {
+            if (AstcFormats.Contains(format)) return false;
             switch (format)
             {
                 case TunerTextureFormat.ETC2_RGB4:
                 case TunerTextureFormat.ETC2_RGBA8:
-                case TunerTextureFormat.ASTC_4x4:
-                case TunerTextureFormat.ASTC_6x6:
-                case TunerTextureFormat.ASTC_8x8:
                 case TunerTextureFormat.Automatic:
                 case TunerTextureFormat.Unknown:
                     return false;
@@ -156,11 +172,9 @@ namespace AvatarTuner.Core
         /// <summary>True when the format can store an alpha channel.</summary>
         public static bool SupportsAlpha(TunerTextureFormat format)
         {
+            if (AstcFormats.Contains(format)) return true;
             switch (format)
             {
-                case TunerTextureFormat.ASTC_4x4:
-                case TunerTextureFormat.ASTC_6x6:
-                case TunerTextureFormat.ASTC_8x8:
                 case TunerTextureFormat.BC3:
                 case TunerTextureFormat.BC7:
                 case TunerTextureFormat.BC1: // 1-bit alpha only
@@ -179,6 +193,7 @@ namespace AvatarTuner.Core
         /// <summary>Number of color/data channels represented by the format.</summary>
         public static int ChannelCount(TunerTextureFormat format)
         {
+            if (AstcFormats.Contains(format)) return 4;
             switch (format)
             {
                 case TunerTextureFormat.BC4:
@@ -203,9 +218,6 @@ namespace AvatarTuner.Core
 
                 case TunerTextureFormat.BC3:
                 case TunerTextureFormat.BC7:
-                case TunerTextureFormat.ASTC_4x4:
-                case TunerTextureFormat.ASTC_6x6:
-                case TunerTextureFormat.ASTC_8x8:
                 case TunerTextureFormat.RGBA32:
                 case TunerTextureFormat.ARGB32:
                 case TunerTextureFormat.RGBA16:
@@ -232,13 +244,11 @@ namespace AvatarTuner.Core
         /// </summary>
         public static bool SupportsSmoothAlpha(TunerTextureFormat format)
         {
+            if (AstcFormats.Contains(format)) return true;
             switch (format)
             {
                 case TunerTextureFormat.BC3:
                 case TunerTextureFormat.BC7:
-                case TunerTextureFormat.ASTC_4x4:
-                case TunerTextureFormat.ASTC_6x6:
-                case TunerTextureFormat.ASTC_8x8:
                 case TunerTextureFormat.ETC2_RGBA8:
                 case TunerTextureFormat.RGBA32:
                 case TunerTextureFormat.ARGB32:
@@ -263,6 +273,7 @@ namespace AvatarTuner.Core
         /// </summary>
         public static string DisplayName(TunerTextureFormat format)
         {
+            if (AstcFormats.Contains(format)) return format.ToString();
             switch (format)
             {
                 case TunerTextureFormat.Automatic:
@@ -351,7 +362,23 @@ namespace AvatarTuner.Core
             // Only unambiguous block-format aliases are accepted here: the parsed format
             // feeds VRAM arithmetic, so an alias whose block size could differ is refused
             // (Unknown) instead of guessed at.
-            switch (trimmed.ToUpperInvariant())
+            var upper = trimmed.ToUpperInvariant();
+            if (upper.StartsWith("ASTC_", StringComparison.Ordinal) || upper.StartsWith("RGBA_ASTC", StringComparison.Ordinal))
+            {
+                foreach (var astc in AstcFormats)
+                {
+                    var block = BlockWidth(astc);
+                    var size = block + "X" + block;
+                    if (upper == "ASTC_RGB_" + size || upper == "ASTC_RGBA_" + size ||
+                        upper == "RGBA_ASTC" + size + "_SRGB" || upper == "RGBA_ASTC" + size + "_UNORM")
+                    {
+                        format = astc;
+                        return true;
+                    }
+                }
+                return false;
+            }
+            switch (upper)
             {
                 case "DXT1":
                 case "DXT1CRUNCHED":
@@ -416,12 +443,11 @@ namespace AvatarTuner.Core
         }
 
         /// <summary>
-        /// Reports whether the format requires dimensions to be multiples of 4 to avoid
-        /// padding waste. Block-compressed formats always pad up to the next multiple of 4.
+        /// Reports whether the compressed blocks are four texels wide.
         /// </summary>
         public static bool RequiresMultipleOfFour(TunerTextureFormat format)
         {
-            return IsBlockCompressed(format);
+            return BlockWidth(format) == 4;
         }
 
         /// <summary>

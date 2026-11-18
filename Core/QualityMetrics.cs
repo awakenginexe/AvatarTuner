@@ -2,6 +2,8 @@ using System;
 
 namespace AvatarTuner.Core
 {
+    public enum NormalPixelLayout { RgOrAg, Ag, Xyz }
+
     /// <summary>
     /// Pixel-domain quality arithmetic. Operates on flat byte buffers so it can be unit
     /// tested without any rendering or Unity API.
@@ -354,15 +356,20 @@ namespace AvatarTuner.Core
         /// </summary>
         public static byte[] UnpackNormals(byte[] rgba)
         {
-            var result = new byte[rgba.Length];
+            return UnpackNormals(rgba, NormalPixelLayout.RgOrAg);
+        }
+
+        public static byte[] UnpackNormals(byte[] rgba, NormalPixelLayout layout)
+        {
+            var result = (byte[])rgba.Clone();
             for (var i = 0; i + 3 < rgba.Length; i += 4)
             {
-                double x = rgba[i] / 255.0 * (rgba[i + 3] / 255.0) * 2 - 1, y = rgba[i + 1] / 127.5 - 1;
-                double z = Math.Sqrt(Math.Max(0, 1 - x * x - y * y));
-                result[i] = (byte)Math.Round((x + 1) * 127.5);
-                result[i + 1] = rgba[i + 1];
-                result[i + 2] = (byte)Math.Round((z + 1) * 127.5);
                 result[i + 3] = 255;
+                if (layout == NormalPixelLayout.Xyz) continue;
+                double red = layout == NormalPixelLayout.Ag ? 1 : rgba[i] / 255.0;
+                double x = red * (rgba[i + 3] / 255.0) * 2 - 1, y = rgba[i + 1] / 127.5 - 1;
+                result[i] = (byte)Math.Round((x + 1) * 127.5);
+                result[i + 2] = (byte)Math.Round((Math.Sqrt(Math.Max(0, 1 - x * x - y * y)) + 1) * 127.5);
             }
             return result;
         }

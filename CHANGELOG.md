@@ -4,6 +4,25 @@ All notable changes to AvatarTuner are documented here, newest version first.
 Release notes are written for users; the GitHub Release description for each version is
 extracted from the matching section below.
 
+## v2.1.0
+
+### Texture optimization
+
+- Windows can choose BC1 for fully opaque RGBA color and emission textures after checking the imported pixels. Android compares all six LDR ASTC block sizes and uses Unity's high-quality encoder in Standard mode.
+- Normal and Maximum check lighting-direction error in individual 8×8 regions. Android normal maps use the project's XYZ or DXT5nm channel layout during evaluation and preview.
+
+### Agent API
+
+- Public Unity C# agent API for discovery, analysis, candidate preview, optimization and restore, with a bundled guide and Unity MCP reflection examples. Supports Standard and Advanced settings without desktop control.
+- Versioned JSON results include texture decisions, memory completeness, compatibility findings, application status and readable explanations. Applying changes requires a single-use preview token for the same avatar; platform, manifest and source changes invalidate the reviewed plan.
+- Strict request validation and offline API boundary checks. Explicit agent settings replace saved legacy tuning while retaining exclusions; call-local settings do not overwrite UI preferences.
+
+### Migration and limitations
+
+- The agent API schema remains version 1. Existing recovery records remain readable and restore stays available; tool-version tracking marks older generated outputs stale and requires re-optimization.
+- Agent calls require Unity Editor main-thread execution. The editor retains one preview at a time.
+- Unity 2022.3.22f1 EditMode tests cover candidate measurement and generated texture imports on Windows and Android. Full scene application, Undo and in-game visual quality still need manual checks.
+
 ## v2.0.0
 
 ### Added and changed

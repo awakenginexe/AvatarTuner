@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 namespace AvatarTuner.Core
 {
     public sealed class TextureCandidate
@@ -21,8 +22,10 @@ namespace AvatarTuner.Core
     }
     public sealed class CandidateQuality
     {
-        public const string ComparisonVersion = "visual-detail-v2";
+        public const string ComparisonVersion = "visual-detail-v3";
         public double Psnr, Ssim, AlphaCoverageError, EdgeError, MeanColorError, MaxChannelError, NormalAngularError;
+        public double WorstLocalNormalAngularError;
+        public bool? AlphaFullyOpaque;
         public double MinLocalSsim = 1;
         public bool Available;
         public CandidateQuality Visual512, Visual256;
@@ -55,33 +58,52 @@ namespace AvatarTuner.Core
             q.Ssim = QualityMetrics.Ssim(reference, candidate, width, height, 4, out q.MinLocalSsim, alphaUsed);
             q.AlphaCoverageError = alphaUsed ? Math.Abs(QualityMetrics.AlphaCoverage(reference, width, height, 4, 0.5) - QualityMetrics.AlphaCoverage(candidate, width, height, 4, 0.5)) : 0;
             q.EdgeError = Math.Abs(QualityMetrics.EdgeEnergy(reference, width, height, 4) - QualityMetrics.EdgeEnergy(candidate, width, height, 4));
-            double sum = 0, angle = 0;
+            double sum = 0;
+            q.AlphaFullyOpaque = true;
             int pixels = width * height;
             for (int i = 0; i < pixels; i++)
             {
+                if (reference[i * 4 + 3] != 255 || candidate[i * 4 + 3] != 255) q.AlphaFullyOpaque = false;
                 for (int c = 0; c < (alphaUsed ? 4 : 3); c++)
                 {
                     double d = Math.Abs(reference[i * 4 + c] - candidate[i * 4 + c]) / 255.0;
                     sum += d;
                     q.MaxChannelError = Math.Max(q.MaxChannelError, d);
                 }
-                if (normalMap)
-                {
-                    double dot = 0, a = 0, b = 0;
-                    for (int c = 0; c < 3; c++)
-                    {
-                        double x = reference[i * 4 + c] / 127.5 - 1, y = candidate[i * 4 + c] / 127.5 - 1;
-                        dot += x * y;
-                        a += x * x;
-                        b += y * y;
-                    }
-                    if (a > 0 && b > 0) angle += Math.Acos(Math.Max(-1, Math.Min(1, dot / Math.Sqrt(a * b)))) * 180 / Math.PI;
-                }
             }
             q.MeanColorError = sum / (pixels * (alphaUsed ? 4 : 3));
-            q.NormalAngularError = angle / pixels;
+            if (normalMap) q.MeasureNormalAngles(reference, candidate, width, height);
             q.Available = true;
             return q;
+        }
+
+        private void MeasureNormalAngles(byte[] reference, byte[] candidate, int width, int height)
+        {
+            const int window = 8;
+            double total = 0;
+            for (int y = 0; y < height; y += window)
+                for (int x = 0; x < width; x += window)
+                {
+                    int right = Math.Min(x + window, width), bottom = Math.Min(y + window, height);
+                    double sum = 0;
+                    for (int row = y; row < bottom; row++)
+                        for (int col = x; col < right; col++)
+                        {
+                            int offset = (row * width + col) * 4;
+                            double dot = 0, a = 0, b = 0;
+                            for (int c = 0; c < 3; c++)
+                            {
+                                double u = reference[offset + c] * 2 - 255, v = candidate[offset + c] * 2 - 255;
+                                dot += u * v;
+                                a += u * u;
+                                b += v * v;
+                            }
+                            sum += Math.Acos(Math.Max(-1, Math.Min(1, dot / Math.Sqrt(a * b)))) * (180 / Math.PI);
+                        }
+                    WorstLocalNormalAngularError = Math.Max(WorstLocalNormalAngularError, sum / ((right - x) * (bottom - y)));
+                    total += sum;
+                }
+            NormalAngularError = total / (width * height);
         }
     }
     public static class AdaptivePlanner
@@ -93,6 +115,8 @@ namespace AvatarTuner.Core
             if (r == null || policy == null || settings == null || !ValidSettings(settings) || !r.IsValid || !r.CurrentFormatKnown || settings.Excluded || settings.ProtectQuality || (o != null && o.Excluded) || category == SemanticCategory.Mixed || r.Usage == TextureUsageKind.Unknown || r.Usage == TextureUsageKind.UserInterface || r.FaceCount != 1 ||
                 (standardLevel.HasValue && !Enum.IsDefined(typeof(StandardOptimizationLevel), standardLevel.Value))) return result;
             if (TextureFormatInfo.BytesPerPixel(r.CurrentFormat) <= 0) return result;
+            // A shader slot alone doesn't establish how a Default texture encodes normals.
+            if (r.Usage == TextureUsageKind.NormalMap && !r.ImporterTypeIsNormalMap) return result;
             var formats = new List<TunerTextureFormat>();
             if (settings.Platform == OptimizationPlatform.Windows)
             {
@@ -109,22 +133,17 @@ namespace AvatarTuner.Core
                 }
                 else if (r.Usage == TextureUsageKind.GreyscaleData && TextureFormatInfo.ChannelCount(r.CurrentFormat) == 1)
                     formats.Add(TunerTextureFormat.BC4);
-                else if ((r.Usage == TextureUsageKind.AlbedoOpaque || r.Usage == TextureUsageKind.Emission) && !r.SourceHasAlpha && !r.AlphaChannelUsed)
-                {
-                    formats.Add(TunerTextureFormat.BC1);
-                    formats.Add(TunerTextureFormat.BC7);
-                }
                 else if (r.Usage == TextureUsageKind.AlbedoWithAlpha || r.Usage == TextureUsageKind.AlbedoOpaque || r.Usage == TextureUsageKind.Emission)
                 {
-                    formats.Add(TunerTextureFormat.BC3);
+                    formats.Add(TunerTextureFormat.BC1);
+                    if (r.SourceHasAlpha || r.AlphaChannelUsed || r.Usage == TextureUsageKind.AlbedoWithAlpha)
+                        formats.Add(TunerTextureFormat.BC3);
                     formats.Add(TunerTextureFormat.BC7);
                 }
             }
             else
             {
-                formats.Add(TunerTextureFormat.ASTC_4x4);
-                formats.Add(TunerTextureFormat.ASTC_6x6);
-                formats.Add(TunerTextureFormat.ASTC_8x8);
+                formats.AddRange(TextureFormatInfo.AstcFormats);
             }
             if (r.Usage == TextureUsageKind.Detail) return result;
             // HDR is preserved until decoded floating-point comparisons are available.
@@ -154,6 +173,8 @@ namespace AvatarTuner.Core
             bool keep = settings.KeepResolution || (o != null && o.KeepResolution);
             int limit = settings.MaxResolution > 0 ? settings.MaxResolution : max;
             if (o != null && o.ForceMaxSize) limit = Math.Min(limit, o.ForcedMaxSize);
+            bool highQualityEncoding = settings.Effort == OptimizationEffort.BestQuality ||
+                (standardLevel.HasValue && settings.Platform == OptimizationPlatform.Android);
             for (int size = max; size >= floor; size = Math.Max(floor, size / 2))
             {
                 if (size <= limit)
@@ -161,8 +182,8 @@ namespace AvatarTuner.Core
                     int w = Math.Max(1, (int)Math.Round((double)r.SourceWidth * size / max)), h = Math.Max(1, (int)Math.Round((double)r.SourceHeight * size / max));
                     foreach (var f in formats)
                     {
-                        if (r.CurrentSRGB && (f == TunerTextureFormat.BC4 || f == TunerTextureFormat.BC5)) continue;
-                        if (settings.Platform == OptimizationPlatform.Android && f == r.CurrentFormat && f != TunerTextureFormat.ASTC_4x4 && f != TunerTextureFormat.ASTC_6x6 && f != TunerTextureFormat.ASTC_8x8) continue;
+                        if (!r.ImporterTypeIsNormalMap && r.CurrentSRGB && (f == TunerTextureFormat.BC4 || f == TunerTextureFormat.BC5)) continue;
+                        if (settings.Platform == OptimizationPlatform.Android && !TextureFormatInfo.AstcFormats.Contains(f)) continue;
                         var filters = settings.Effort == OptimizationEffort.BestQuality
                             ? new[] { ResizeFilter.UnityMitchell, ResizeFilter.UnityBilinear, ResizeFilter.Area, ResizeFilter.Lanczos3, ResizeFilter.Mitchell }
                             : new[] { ResizeFilter.UnityMitchell };
@@ -177,7 +198,7 @@ namespace AvatarTuner.Core
                                 Format = f,
                                 MipMaps = mipMaps,
                                 Filter = filter,
-                                CompressionQuality = settings.Effort == OptimizationEffort.BestQuality ? 100 : 50,
+                                CompressionQuality = highQualityEncoding ? 100 : 50,
                                 Bytes = VramCalculator.EstimateBytes(w, h, f, mipMaps, r.FaceCount)
                             });
                         }
@@ -219,6 +240,7 @@ namespace AvatarTuner.Core
             plan.SourceBytes = VramCalculator.EstimateBytes(r.SourceWidth, r.SourceHeight, r.CurrentFormat, r.CurrentMipMaps, r.FaceCount);
             plan.TargetBytes = plan.SourceBytes;
             if (evaluate == null) return plan;
+            bool needsAlphaProof = r.SourceHasAlpha || r.AlphaChannelUsed || r.Usage == TextureUsageKind.AlbedoWithAlpha;
             TextureCandidate best = null;
             CandidateQuality quality = null;
             CandidateQuality visualQuality = null;
@@ -234,7 +256,9 @@ namespace AvatarTuner.Core
                 if (s.Format == TunerTextureFormat.Automatic && s.MaxResolution == 0 && (o == null || !o.HasAnyEffect))
                     bestScore = Math.Abs(reportedSource - targetBytes);
             }
-            foreach (var c in Candidates(r, p, o, s, category, standardLevel))
+            IEnumerable<TextureCandidate> candidates = Candidates(r, p, o, s, category, standardLevel);
+            if (!useReductionTarget) candidates = candidates.OrderBy(c => c.Bytes);
+            foreach (var c in candidates)
             {
                 if (c.Bytes >= plan.SourceBytes) continue;
                 double score = c.Bytes;
@@ -248,6 +272,7 @@ namespace AvatarTuner.Core
                 if (score > bestScore || (best == null && score == bestScore)) continue;
                 var q = evaluate(c);
                 if (!ValidQuality(q)) continue;
+                if (c.Format == TunerTextureFormat.BC1 && !(q.AlphaFullyOpaque ?? !needsAlphaProof)) continue;
                 var data = IsDataTexture(r, category);
                 var normalMap = r.Usage == TextureUsageKind.NormalMap || r.ImporterTypeIsNormalMap;
                 var maximum = standardLevel == StandardOptimizationLevel.Maximum;
@@ -257,7 +282,7 @@ namespace AvatarTuner.Core
                 // Normal-map channels are not colors: the visible change is how far the lighting direction moves.
                 if (normalMap && (normal || maximum))
                 {
-                    if (q.NormalAngularError > (maximum ? 3.5 : 2)) continue;
+                    if (q.NormalAngularError > (maximum ? 3.5 : 2) || q.WorstLocalNormalAngularError > (maximum ? 14 : 8)) continue;
                 }
                 else
                 {
@@ -281,8 +306,14 @@ namespace AvatarTuner.Core
                     if (standardLevel.HasValue && data) { minPsnr = Math.Max(minPsnr, maximum ? 40 : normal ? 44 : 48); minSsim = Math.Max(minSsim, maximum ? 0.96 : normal ? 0.975 : 0.985); }
                     if (visual.Psnr < Math.Max(s.MinPsnr, minPsnr) || visual.Ssim < Math.Max(s.MinSsim, minSsim)) continue;
                 }
-                if (best != null && score == bestScore &&
-                    (q.Ssim < quality.Ssim || (q.Ssim == quality.Ssim && q.Psnr <= quality.Psnr))) continue;
+                if (best != null && score == bestScore)
+                {
+                    if (normalMap && q.NormalAngularError != quality.NormalAngularError)
+                    {
+                        if (q.NormalAngularError > quality.NormalAngularError) continue;
+                    }
+                    else if (q.Ssim < quality.Ssim || (q.Ssim == quality.Ssim && q.Psnr <= quality.Psnr)) continue;
+                }
                 best = c;
                 bestScore = score;
                 quality = q;
@@ -331,7 +362,8 @@ namespace AvatarTuner.Core
             return quality != null && quality.Available && !double.IsNaN(quality.Psnr) && quality.Psnr >= 0 &&
                 Between(quality.Ssim, -1, 1) && Between(quality.MinLocalSsim, -1, 1) &&
                 Between(quality.AlphaCoverageError, 0, 1) && Between(quality.EdgeError, 0, 1) &&
-                Between(quality.MeanColorError, 0, 1) && Between(quality.MaxChannelError, 0, 1) && Between(quality.NormalAngularError, 0, 180);
+                Between(quality.MeanColorError, 0, 1) && Between(quality.MaxChannelError, 0, 1) &&
+                Between(quality.NormalAngularError, 0, 180) && Between(quality.WorstLocalNormalAngularError, 0, 180);
         }
 
         private static bool IsDataTexture(TexturePlanRequest request, SemanticCategory category)

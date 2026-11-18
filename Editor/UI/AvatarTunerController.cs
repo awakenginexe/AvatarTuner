@@ -404,7 +404,7 @@ namespace AvatarTuner.Editor.UI
                     Plan = TexturePlanBuilder.BuildAdaptive(Report, PresetCatalog.GetPolicy(OptimizationPreset.Balanced), overrides, settings,
                         (entry, candidate) =>
                         {
-                            var mobile = candidate.Format == TunerTextureFormat.ASTC_4x4 || candidate.Format == TunerTextureFormat.ASTC_6x6 || candidate.Format == TunerTextureFormat.ASTC_8x8;
+                            var mobile = TextureFormatInfo.AstcFormats.Contains(candidate.Format);
                             if (mobile != (CandidateEvaluator.PlatformName == "Android")) return null;
                             return evaluator.Measure(entry, candidate);
                         });

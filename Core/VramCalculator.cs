@@ -32,7 +32,7 @@ namespace AvatarTuner.Core
             var blockBytes = TextureFormatInfo.BlockBytes(format);
             if (blockBytes > 0)
             {
-                int blockWidth = format == TunerTextureFormat.ASTC_6x6 ? 6 : format == TunerTextureFormat.ASTC_8x8 ? 8 : 4;
+                int blockWidth = TextureFormatInfo.BlockWidth(format);
                 long blocksWide = ((long)width + blockWidth - 1) / blockWidth;
                 long blocksHigh = ((long)height + blockWidth - 1) / blockWidth;
                 return blocksWide * blocksHigh * blockBytes;

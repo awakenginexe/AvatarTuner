@@ -344,8 +344,14 @@ namespace AvatarTuner.StandaloneTests
         {
             var bc5 = QualityMetrics.UnpackNormals(new byte[] { 200, 90, 0, 255 });
             var dxt5nm = QualityMetrics.UnpackNormals(new byte[] { 255, 90, 255, 200 });
+            var astc = QualityMetrics.UnpackNormals(new byte[] { 90, 90, 90, 200 }, NormalPixelLayout.Ag);
             for (var c = 0; c < 4; c++) Assert.AreEqual(bc5[c], dxt5nm[c], "channel " + c);
+            for (var c = 0; c < 4; c++) Assert.AreEqual(bc5[c], astc[c], "ASTC channel " + c);
             Assert.IsTrue(bc5[2] > 200, "z is rebuilt and points outward");
+            var xyz = QualityMetrics.UnpackNormals(new byte[] { 200, 90, 40, 17 }, NormalPixelLayout.Xyz);
+            Assert.AreEqual((byte)200, xyz[0], "XYZ x is independent of alpha");
+            Assert.AreEqual((byte)40, xyz[2], "XYZ preserves signed Z");
+            Assert.AreEqual((byte)255, xyz[3], "packed alpha is excluded from color comparisons");
         }
 
         [Test("Standard level labels and descriptions exist in all supported languages")]

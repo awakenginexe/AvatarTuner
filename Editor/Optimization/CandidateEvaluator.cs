@@ -4,6 +4,7 @@ using System.IO;
 using AvatarTuner.Core;
 using AvatarTuner.Editor.Analysis;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEngine;
 
 namespace AvatarTuner.Editor.Optimization
@@ -29,6 +30,7 @@ namespace AvatarTuner.Editor.Optimization
         private readonly Func<bool> _cancelled;
         private string _baselineSource;
         private byte[] _baseline;
+        private bool _baselineHasTransparency;
         private int _evaluated;
         private readonly int _candidateCount;
 
@@ -50,7 +52,17 @@ namespace AvatarTuner.Editor.Optimization
         public static string Revision(string path)
         {
             return StableHash.CombineOrdered(new[] { path, AssetDatabase.GetAssetDependencyHash(path).ToString(),
-                Application.unityVersion, EditorUserBuildSettings.activeBuildTarget.ToString() });
+                Application.unityVersion, EditorUserBuildSettings.activeBuildTarget.ToString(), TargetNormalEncoding.ToString() });
+        }
+
+        private static NormalMapEncoding TargetNormalEncoding => EditorUserBuildSettings.activeBuildTarget == BuildTarget.Android
+            ? PlayerSettings.GetNormalMapEncoding(NamedBuildTarget.Android) : NormalMapEncoding.DXT5nm;
+
+        private static byte[] DecodeNormals(byte[] pixels, TunerTextureFormat format)
+        {
+            var layout = TargetNormalEncoding == NormalMapEncoding.XYZ ? NormalPixelLayout.Xyz :
+                TextureFormatInfo.AstcFormats.Contains(format) ? NormalPixelLayout.Ag : NormalPixelLayout.RgOrAg;
+            return QualityMetrics.UnpackNormals(pixels, layout);
         }
 
         public static string CacheKey(TextureEntry entry, TextureCandidate candidate)
@@ -72,6 +84,7 @@ namespace AvatarTuner.Editor.Optimization
                 if (_progress != null) _progress(_candidateCount > 0 ? (float)++_evaluated / _candidateCount : 0f, "opt.phase.candidates");
                 CheckCancelled();
                 EnsureBaseline(entry);
+                if (candidate.Format == TunerTextureFormat.BC1 && _baselineHasTransparency) return quality;
                 var path = ImportCandidate(entry.Path, candidate, _folder + "/candidate");
                 var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
                 TunerTextureFormat actual;
@@ -81,10 +94,10 @@ namespace AvatarTuner.Editor.Optimization
                 var pixels = Bytes(texture);
                 if (texture.width != entry.Width || texture.height != entry.Height)
                     pixels = TextureResampler.Resize(pixels, texture.width, texture.height, entry.Width, entry.Height,
-                        ResizeFilter.Mitchell, entry.SrgbTexture);
-                if (entry.IsNormalMap) pixels = QualityMetrics.UnpackNormals(pixels);
+                        ResizeFilter.Mitchell, !entry.IsNormalMap && entry.SrgbTexture);
+                if (entry.IsNormalMap) pixels = DecodeNormals(pixels, actual);
                 quality = CandidateQuality.Compare(_baseline, pixels, entry.Width, entry.Height,
-                    !entry.IsNormalMap && (entry.HasAlphaChannel || entry.AlphaIsTransparency), entry.IsNormalMap);
+                    !entry.IsNormalMap && (_baselineHasTransparency || entry.HasAlphaChannel || entry.AlphaIsTransparency), entry.IsNormalMap);
             }
             catch (OperationCanceledException) { cacheable = false; throw; }
             catch (Exception ex)
@@ -122,7 +135,10 @@ namespace AvatarTuner.Editor.Optimization
             var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             if (texture == null || texture.width != entry.Width || texture.height != entry.Height)
                 throw new InvalidOperationException("Source dimensions changed; analyze again.");
-            _baseline = entry.IsNormalMap ? QualityMetrics.UnpackNormals(Bytes(texture)) : Bytes(texture);
+            _baseline = entry.IsNormalMap ? DecodeNormals(Bytes(texture), TunerTextureFormat.RGBA32) : Bytes(texture);
+            _baselineHasTransparency = false;
+            for (var i = 3; i < _baseline.Length; i += 4)
+                if (_baseline[i] != 255) { _baselineHasTransparency = true; break; }
             _baselineSource = entry.Path;
         }
 
@@ -166,9 +182,10 @@ namespace AvatarTuner.Editor.Optimization
                 {
                     decoded = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
                     if (!ImageConversion.LoadImage(decoded, File.ReadAllBytes(sourcePath))) throw new IOException(sourcePath);
+                    var normalMap = sourceImporter.textureType == TextureImporterType.NormalMap;
                     var bytes = TextureResampler.Resize(Bytes(decoded), decoded.width, decoded.height,
-                        candidate.Width, candidate.Height, candidate.Filter, sourceImporter.sRGBTexture,
-                        sourceImporter.alphaIsTransparency && sourceImporter.alphaSource == TextureImporterAlphaSource.FromInput);
+                        candidate.Width, candidate.Height, candidate.Filter, !normalMap && sourceImporter.sRGBTexture,
+                        !normalMap && sourceImporter.alphaIsTransparency && sourceImporter.alphaSource == TextureImporterAlphaSource.FromInput, normalMap);
                     resized = MakeTexture(bytes, candidate.Width, candidate.Height);
                     File.WriteAllBytes(path, ImageConversion.EncodeToPNG(resized));
                     AssetDatabase.ImportAsset(path);
@@ -213,8 +230,10 @@ namespace AvatarTuner.Editor.Optimization
                 var width = Math.Min(512, entry.Width);
                 var height = Math.Max(1, (int)Math.Round((double)entry.Height * width / entry.Width));
                 if (height > 512) { width = Math.Max(1, width * 512 / height); height = 512; }
-                var original = TextureResampler.Resize(_baseline, entry.Width, entry.Height, width, height, ResizeFilter.Area, entry.SrgbTexture);
-                var optimized = TextureResampler.Resize(entry.IsNormalMap ? QualityMetrics.UnpackNormals(Bytes(texture)) : Bytes(texture), texture.width, texture.height, width, height, ResizeFilter.Area, entry.SrgbTexture);
+                var srgb = !entry.IsNormalMap && entry.SrgbTexture;
+                var original = TextureResampler.Resize(_baseline, entry.Width, entry.Height, width, height, ResizeFilter.Area, srgb);
+                var optimized = TextureResampler.Resize(entry.IsNormalMap ? DecodeNormals(Bytes(texture), plan.Candidate.Format) : Bytes(texture),
+                    texture.width, texture.height, width, height, ResizeFilter.Area, srgb);
                 var difference = new byte[original.Length];
                 for (var i = 0; i < difference.Length; i++)
                     difference[i] = i % 4 == 3 ? (byte)255 : (byte)Math.Abs(original[i] - optimized[i]);

@@ -15,7 +15,8 @@ namespace AvatarTuner.Core
                 (long)width * height > int.MaxValue || mipCount <= 0 ||
                 mipCount > VramCalculator.MipLevelCount(width, height)) return false;
             var bytesPerPixel = format == TunerTextureFormat.RGB24 ? 4f :
-                format == TunerTextureFormat.ASTC_6x6 ? 0.445f : (float)TextureFormatInfo.BytesPerPixel(format);
+                format == TunerTextureFormat.ASTC_6x6 ? 0.445f :
+                format == TunerTextureFormat.ASTC_12x12 ? 0.11125f : (float)TextureFormatInfo.BytesPerPixel(format);
             if (bytesPerPixel <= 0) return false;
 
             // The SDK shifts the base area and rounds each mip, without block padding or cube faces.

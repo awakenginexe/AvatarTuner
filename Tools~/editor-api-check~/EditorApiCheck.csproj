@@ -13,6 +13,8 @@
   -->
 
   <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <DefineConstants>$(DefineConstants);AVATARTUNER_OFFLINE_TESTS</DefineConstants>
     <TargetFramework>net8.0</TargetFramework>
     <LangVersion>9.0</LangVersion>
     <Nullable>disable</Nullable>
@@ -23,8 +25,12 @@
 
   <ItemGroup>
     <Compile Include="UnityStubs.cs" />
+    <Compile Include="AgentApiCheckProgram.cs" />
+    <Compile Include="..\..\Tests\Standalone~\TestFramework.cs" />
+    <Compile Include="..\..\Tests\Editor\AgentApiTests.cs" />
     <Compile Include="..\..\Core\**\*.cs" />
     <Compile Include="..\..\Editor\Analysis\AvatarAnalysisModel.cs" />
+    <Compile Include="..\..\Editor\Automation\*.cs" />
     <Compile Include="..\..\Editor\Analysis\AnalysisRevision.cs" />
     <Compile Include="..\..\Editor\Analysis\VrcPerformanceReader.cs" />
     <Compile Include="..\..\Editor\Analysis\AvatarScanner.cs" />

@@ -6,7 +6,13 @@ Unity from ever importing it; it is developer tooling only.
 
 ```bash
 dotnet build Tools~/editor-api-check~/EditorApiCheck.csproj   # zero errors = type-checks clean
+dotnet run --project Tools~/editor-api-check~/EditorApiCheck.csproj  # agent API boundary checks
 ```
+
+The executable reuses the standalone test runner for the agent API's request/target gates,
+single-use preview tokens, reentrancy, thread guard and empty-avatar analysis. It uses stubs;
+it does not exercise real Unity imports, rendering, Undo or scene persistence. These test
+cases also compile as NUnit EditMode tests under `Tests/Editor/` in Unity.
 
 ## Stub fidelity rule
 

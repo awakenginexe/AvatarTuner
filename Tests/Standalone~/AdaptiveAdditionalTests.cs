@@ -14,6 +14,7 @@ namespace AvatarTuner.StandaloneTests
         [Test] public static void NormalAlphaNeverUsesColorFormats()
         {
             var r = Request(); r.Usage = TextureUsageKind.NormalMap; r.SourceHasAlpha = true;
+            r.ImporterTypeIsNormalMap = true;
             foreach (var c in AdaptivePlanner.Candidates(r, PresetCatalog.GetPolicy(OptimizationPreset.Balanced), null, new TextureSettings(), SemanticCategory.Hair))
                 Assert.IsTrue(c.Format == TunerTextureFormat.BC5 || c.Format == r.CurrentFormat, "normal format");
         }

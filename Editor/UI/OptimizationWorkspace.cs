@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using AvatarTuner.Core;
 using AvatarTuner.Editor.Analysis;
 using AvatarTuner.Editor.Optimization;
@@ -15,6 +16,9 @@ namespace AvatarTuner.Editor.UI
     public sealed class OptimizationWorkspace : EditorWindow
     {
         private const int PageSize = 50;
+        private static readonly TunerTextureFormat[] CompressionFormats = new[] { TunerTextureFormat.Automatic,
+            TunerTextureFormat.BC1, TunerTextureFormat.BC3, TunerTextureFormat.BC4, TunerTextureFormat.BC5,
+            TunerTextureFormat.BC7 }.Concat(TextureFormatInfo.AstcFormats).ToArray();
         private static readonly double[] ReductionPresets = { 1, 2, 3, 4, 5, 6, 7, 8, 16 };
         private AvatarTunerController controller;
         private Action changed;
@@ -463,7 +467,7 @@ namespace AvatarTuner.Editor.UI
             applyCustomRatio.SetEnabled(!float.IsNaN(customRatio.value) && !float.IsInfinity(customRatio.value) && customRatio.value >= 1);
             customRatio.RegisterValueChangedCallback(e => applyCustomRatio.SetEnabled(!float.IsNaN(e.newValue) && !float.IsInfinity(e.newValue) && e.newValue >= 1));
 
-            var formats = new[] { TunerTextureFormat.Automatic, TunerTextureFormat.BC1, TunerTextureFormat.BC3, TunerTextureFormat.BC4, TunerTextureFormat.BC5, TunerTextureFormat.BC7, TunerTextureFormat.ASTC_4x4, TunerTextureFormat.ASTC_6x6, TunerTextureFormat.ASTC_8x8 };
+            var formats = CompressionFormats;
             var choices = new List<string> { T("chooseFormat") };
             foreach (var format in formats) choices.Add(format == TunerTextureFormat.Automatic ? T("automatic") : format.ToString());
             var formatField = new PopupField<string>(T("format"), choices, 0);
@@ -559,7 +563,7 @@ namespace AvatarTuner.Editor.UI
                 commit();
             });
 
-            var formats = texture == null ? new List<TunerTextureFormat> { TunerTextureFormat.Automatic, TunerTextureFormat.BC1, TunerTextureFormat.BC3, TunerTextureFormat.BC4, TunerTextureFormat.BC5, TunerTextureFormat.BC7, TunerTextureFormat.ASTC_4x4, TunerTextureFormat.ASTC_6x6, TunerTextureFormat.ASTC_8x8 } : controller.AllowedFormats(texture);
+            var formats = texture == null ? new List<TunerTextureFormat>(CompressionFormats) : controller.AllowedFormats(texture);
             if (formats == null) formats = new List<TunerTextureFormat>();
             if (!formats.Contains(TunerTextureFormat.Automatic)) formats.Insert(0, TunerTextureFormat.Automatic);
             if (!formats.Contains(settings.Format)) formats.Add(settings.Format);

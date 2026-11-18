@@ -834,8 +834,19 @@ namespace UnityEditor
         public static void Space() { }
     }
 
+    [AttributeUsage(AttributeTargets.Class)]
+    public sealed class InitializeOnLoadAttribute : Attribute { }
+
+    public static class EditorApplication
+    {
+        public static bool isCompiling { get { return false; } }
+        public static bool isUpdating { get { return false; } }
+        public static bool isPlayingOrWillChangePlaymode { get { return false; } }
+    }
+
     public static class EditorUtility
     {
+        public static bool IsPersistent(Object target) { return false; }
         public static void DisplayProgressBar(string title, string info, float progress) { }
         public static bool DisplayCancelableProgressBar(string title, string info, float progress) { return false; }
         public static void ClearProgressBar() { }
@@ -960,6 +971,13 @@ namespace UnityEditor
         NoTarget = 0,
         StandaloneWindows = 5,
         Android = 13
+    }
+
+    public enum NormalMapEncoding { XYZ, DXT5nm }
+
+    public class PlayerSettings
+    {
+        public static NormalMapEncoding GetNormalMapEncoding(UnityEditor.Build.NamedBuildTarget target) { return NormalMapEncoding.DXT5nm; }
     }
 
     public static class EditorUserBuildSettings
@@ -1089,6 +1107,14 @@ namespace UnityEditor
     }
 }
 
+namespace UnityEditor.Build
+{
+    public readonly struct NamedBuildTarget
+    {
+        public static readonly NamedBuildTarget Android;
+    }
+}
+
 namespace UnityEditor.UIElements
 {
     using System;
@@ -1178,6 +1204,7 @@ namespace UnityEngine.SceneManagement
 {
     public struct Scene
     {
+        public bool IsValid() { return true; }
     }
 }
 
@@ -1187,6 +1214,7 @@ namespace UnityEditor.SceneManagement
 
     public static class EditorSceneManager
     {
+        public static bool IsPreviewScene(Scene scene) { return false; }
         public static void MarkSceneDirty(Scene scene) { }
     }
 }
