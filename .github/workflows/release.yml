@@ -2,8 +2,7 @@ name: Release
 
 # Tag pushes (v1.0.0 style) validate, build both distribution formats and publish a
 # GitHub Release, then update the public VPM repo listing on GitHub Pages.
-# workflow_dispatch validates and builds WITHOUT publishing a release or touching the
-# live VPM listing, so CI results can be reviewed before the first public release.
+# Manual runs build by default. The listing recovery option deploys an existing release.
 
 on:
   push:
@@ -15,6 +14,10 @@ on:
         description: 'Version to build (x.y.z, must match package.json and CHANGELOG.md)'
         required: true
         type: string
+      publish_listing:
+        description: 'Recover the VPM listing for an already published version'
+        type: boolean
+        default: false
 
 env:
   PACKAGE_NAME: AvatarTuner
@@ -25,6 +28,7 @@ jobs:
   # ---------------------------------------------------------------- build & validate
   build:
     name: Validate and build packages
+    if: github.event_name == 'push' || !inputs.publish_listing
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -149,12 +153,15 @@ jobs:
   pages:
     name: Update VPM repository listing on GitHub Pages
     needs: [build, release]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    if: ${{ !cancelled() && (needs.release.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.publish_listing)) }}
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       pages: write
       id-token: write
+    env:
+      PAGES_ARTIFACT: github-pages-${{ github.run_attempt }}
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -162,19 +169,20 @@ jobs:
       - name: Checkout the tagged commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: avatartuner-package
-
       - name: Merge this version into the VPM listing (old versions are preserved)
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version || inputs.version }}
         run: |
           set -euo pipefail
-          ZIP_SHA="$(cut -d' ' -f1 "dist/${PACKAGE_ID}-${{ needs.build.outputs.version }}.zip.sha256")"
-          ZIP_URL="https://github.com/awakenginexe/AvatarTuner/releases/download/${{ needs.build.outputs.tag }}/${PACKAGE_ID}-${{ needs.build.outputs.version }}.zip"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          ZIP_NAME="${PACKAGE_ID}-${VERSION}.zip"
+          gh release download "v$VERSION" --pattern "$ZIP_NAME" --dir dist
+          ZIP_SHA="$(sha256sum "dist/$ZIP_NAME" | cut -d' ' -f1)"
+          ZIP_URL="https://github.com/awakenginexe/AvatarTuner/releases/download/v$VERSION/$ZIP_NAME"
           python3 scripts/update_vpm_listing.py \
-            --version "${{ needs.build.outputs.version }}" \
+            --version "$VERSION" \
             --zip-sha256 "$ZIP_SHA" \
             --zip-url "$ZIP_URL" \
             --existing "$LISTING_URL" \
@@ -190,8 +198,24 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
+          name: ${{ env.PAGES_ARTIFACT }}
           path: site
+
+      - name: Wait for the Pages artifact to appear in the Actions API
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in {1..12}; do
+            if [[ "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$PAGES_ARTIFACT" --jq .total_count)" == 1 ]]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Pages artifact $PAGES_ARTIFACT did not appear in the Actions API" >&2
+          exit 1
 
       - name: Deploy the VPM listing to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT }}
